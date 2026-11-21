@@ -125,14 +125,14 @@ func scanTaskReadModel(row rowsScanner) (TaskReadModel, error) {
 	var done sql.NullInt64
 	var initialEvent, teamID, channelID, authorUserID, messageTS, threadTS, permalink, parentTaskID sql.NullString
 	var latestEvent, deletedAt, sourceCreated, sourceUpdated sql.NullInt64
-	var sourceName, sourceKey, sourceURL sql.NullString
+	var src taskSourceScan
 	var created, updated int64
-	if err := row.Scan(&model.Task.ID, &model.Task.Version, &model.Task.State, &model.Task.Text, &model.Task.SourceKind, &created, &updated, &done,
-		&initialEvent, &teamID, &channelID, &authorUserID, &messageTS, &threadTS, &permalink, &latestEvent, &deletedAt, &sourceCreated, &sourceUpdated, &parentTaskID,
-		&sourceName, &sourceKey, &sourceURL); err != nil {
+	if err := row.Scan(append([]any{&model.Task.ID, &model.Task.Version, &model.Task.State, &model.Task.Text, &model.Task.SourceKind, &created, &updated, &done,
+		&initialEvent, &teamID, &channelID, &authorUserID, &messageTS, &threadTS, &permalink, &latestEvent, &deletedAt, &sourceCreated, &sourceUpdated, &parentTaskID},
+		src.dest()...)...); err != nil {
 		return TaskReadModel{}, err
 	}
-	model.Task.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
+	model.Task.Source = src.source()
 	if model.Task.Source != nil && (model.Task.SourceKind != "local" || initialEvent.Valid) {
 		return TaskReadModel{}, ErrSlackInvariant
 	}

@@ -201,7 +201,7 @@ func TestOpenUpgradeV10AddsTaskSources(t *testing.T) {
 	}
 	defer s.Close()
 	var version int
-	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion != 11 {
+	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion < 11 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	got, err := s.Get(context.Background(), "tsk_v10_task")

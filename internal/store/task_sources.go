@@ -5,32 +5,60 @@ import (
 	"database/sql"
 	"errors"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/build-great-products/cue/internal/task"
 )
 
 // TaskSource is the optional provenance of a task created by a named
-// external feeder. Key and URL are empty when absent.
+// external feeder. Key and URL are empty when absent. ReplySlack, when set,
+// is the Slack thread that task reply posts into.
 type TaskSource struct {
-	Name string `json:"name"`
-	Key  string `json:"key,omitempty"`
-	URL  string `json:"url,omitempty"`
+	Name       string            `json:"name"`
+	Key        string            `json:"key,omitempty"`
+	URL        string            `json:"url,omitempty"`
+	ReplySlack *SlackReplyTarget `json:"reply_slack,omitempty"`
+}
+
+// SlackReplyTarget is a Slack channel and thread root timestamp. The
+// workspace is always the active one.
+type SlackReplyTarget struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts"`
+}
+
+// ValidSlackReplyTarget reports whether channel is a Slack C/G channel ID and
+// threadTS a Slack message timestamp that the ledger schema accepts.
+func ValidSlackReplyTarget(channel, threadTS string) bool {
+	return slackapi.ValidateThreadTarget(channel, threadTS) == nil
 }
 
 // taskSourceColumns are appended, in this order, to every task select that
-// LEFT JOINs task_sources as x.
-const taskSourceColumns = `x.source_name,x.external_key,x.url`
+// LEFT JOINs task_sources as x. Scan them with taskSourceScan.
+const taskSourceColumns = `x.source_name,x.external_key,x.url,x.reply_channel_id,x.reply_thread_ts`
 
-func taskSourceFrom(name, key, link sql.NullString) *TaskSource {
-	if !name.Valid {
+type taskSourceScan struct {
+	name, key, link, replyChannel, replyThread sql.NullString
+}
+
+func (x *taskSourceScan) dest() []any {
+	return []any{&x.name, &x.key, &x.link, &x.replyChannel, &x.replyThread}
+}
+
+func (x *taskSourceScan) source() *TaskSource {
+	if !x.name.Valid {
 		return nil
 	}
-	return &TaskSource{Name: name.String, Key: key.String, URL: link.String}
+	out := &TaskSource{Name: x.name.String, Key: x.key.String, URL: x.link.String}
+	if x.replyChannel.Valid {
+		out.ReplySlack = &SlackReplyTarget{ChannelID: x.replyChannel.String, ThreadTS: x.replyThread.String}
+	}
+	return out
 }
 
 func validateTaskSource(src TaskSource) error {
 	if src.Name == "" {
-		if src.Key != "" || src.URL != "" {
-			return invalidInput("a task key or URL requires a source name")
+		if src.Key != "" || src.URL != "" || src.ReplySlack != nil {
+			return invalidInput("a task key, URL, or Slack reply target requires a source name")
 		}
 		return nil
 	}
@@ -43,13 +71,16 @@ func validateTaskSource(src TaskSource) error {
 	if src.URL != "" && !task.ValidSourceURL(src.URL) {
 		return invalidInput("task URL must be an http or https URL of at most 2048 printable ASCII characters")
 	}
+	if src.ReplySlack != nil && !ValidSlackReplyTarget(src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS) {
+		return invalidInput("Slack reply target must be a C or G channel ID and a Slack thread timestamp")
+	}
 	return nil
 }
 
 // CreateFromSource creates a local task, optionally labelled with a named
 // source. When src has a key and a task with the same source name and key
 // already exists, it returns that task unchanged with Changed false and
-// creates nothing; the new text and URL are ignored. The key stays reserved
+// creates nothing; the new text, URL, and reply target are ignored. The key stays reserved
 // for as long as that task is retained, whatever its state.
 func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, src TaskSource) (MutationResult, error) {
 	normalized, normalizeErr := task.NormalizeText(text)
@@ -58,10 +89,14 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 		canonical = text
 	}
 	inputs := []string{canonical}
-	if src != (TaskSource{}) {
+	if src.Name != "" || src.Key != "" || src.URL != "" || src.ReplySlack != nil {
 		// Plain creates keep their original request hash, so a request ID
 		// recorded before named sources existed still replays.
 		inputs = append(inputs, "source", src.Name, src.Key, src.URL)
+	}
+	if src.ReplySlack != nil {
+		// Likewise, sources without a reply target keep their hash.
+		inputs = append(inputs, "reply_slack", src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS)
 	}
 	return s.mutate(ctx, request{"task.create", hash("task.create", inputs...)}, requestID, func(tx *sql.Tx, now int64) (MutationResult, error) {
 		if normalizeErr != nil {
@@ -92,10 +127,28 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 			return MutationResult{}, err
 		}
 		if src.Name != "" {
-			if _, err = tx.ExecContext(ctx, "INSERT INTO task_sources(task_id,source_name,external_key,url,created_at) VALUES(?,?,?,?,?)", id, src.Name, nullable(src.Key), nullable(src.URL), now); err != nil {
+			var replyChannel, replyThread string
+			if src.ReplySlack != nil {
+				replyChannel, replyThread = src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS
+			}
+			if _, err = tx.ExecContext(ctx, "INSERT INTO task_sources(task_id,source_name,external_key,url,reply_channel_id,reply_thread_ts,created_at) VALUES(?,?,?,?,?,?,?)", id, src.Name, nullable(src.Key), nullable(src.URL), nullable(replyChannel), nullable(replyThread), now); err != nil {
 				return MutationResult{}, err
 			}
 		}
 		return result(id, 1, task.Open, true, now, now), nil
 	})
+}
+
+// GetTaskReplyTarget resolves a task selector to a local task with a Slack
+// reply target. It returns ErrNotFound when the task does not exist or has
+// no reply target.
+func (s *Store) GetTaskReplyTarget(ctx context.Context, selector string) (Task, SlackReplyTarget, error) {
+	t, err := getTx(ctx, s.db, selector)
+	if err != nil {
+		return Task{}, SlackReplyTarget{}, err
+	}
+	if t.SourceKind != "local" || t.Source == nil || t.Source.ReplySlack == nil {
+		return Task{}, SlackReplyTarget{}, ErrNotFound
+	}
+	return t, *t.Source.ReplySlack, nil
 }

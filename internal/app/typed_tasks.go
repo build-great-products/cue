@@ -7,11 +7,22 @@ import (
 	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/identity"
 	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/build-great-products/cue/internal/task"
 )
 
-// taskOrigin carries task create's optional named source flags.
-type taskOrigin struct{ Source, Key, URL string }
+// taskOrigin carries task create's optional named source flags. ReplySlack
+// is the raw CHANNEL:THREAD_TS value of --reply-slack.
+type taskOrigin struct{ Source, Key, URL, ReplySlack string }
+
+// parseReplySlack splits and validates a --reply-slack CHANNEL:THREAD_TS value.
+func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
+	channel, threadTS, ok := strings.Cut(value, ":")
+	if !ok || slackapi.ValidateThreadTarget(channel, threadTS) != nil {
+		return nil, usage("--reply-slack must be CHANNEL:THREAD_TS with a C or G channel ID and a Slack timestamp such as 1712345678.123456")
+	}
+	return &protocol.SlackThreadDTO{ChannelID: channel, ThreadTS: threadTS}, nil
+}
 
 // taskTyped binds Cobra's already-parsed task leaves directly to protocol DTOs.
 // It retains the established task request IDs, text-file safety, and
@@ -26,8 +37,8 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if err != nil {
 			return err
 		}
-		if origin.Source == "" && (origin.Key != "" || origin.URL != "") {
-			return usage("--key and --url require --source")
+		if origin.Source == "" && (origin.Key != "" || origin.URL != "" || origin.ReplySlack != "") {
+			return usage("--key, --url, and --reply-slack require --source")
 		}
 		if origin.Source != "" && !task.ValidSourceName(origin.Source) {
 			return usage("--source must be 1 to 32 characters of a-z, 0-9, and '-', and not local or slack")
@@ -38,7 +49,13 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if origin.URL != "" && !task.ValidSourceURL(origin.URL) {
 			return usage("--url must be an http or https URL of at most 2048 printable ASCII characters without spaces")
 		}
-		params = protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL}
+		create := protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL}
+		if origin.ReplySlack != "" {
+			if create.ReplySlack, err = parseReplySlack(origin.ReplySlack); err != nil {
+				return err
+			}
+		}
+		params = create
 	case "update":
 		body, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
 		if err != nil {
@@ -100,6 +117,9 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 	}
 	if origin.Source != "" {
 		capabilities = append(capabilities, protocol.CapabilityTaskSources)
+	}
+	if origin.ReplySlack != "" {
+		capabilities = append(capabilities, protocol.CapabilityTaskReplyTargets)
 	}
 	out, err := a.gatewayCall(c, taskProtocolCommand(command), requestID, params, capabilities...)
 	if err != nil {

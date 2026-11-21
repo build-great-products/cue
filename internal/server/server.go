@@ -564,7 +564,11 @@ func (s *Server) dispatchConnection(ctx context.Context, r protocol.Request, con
 		var p protocol.TaskCreateParams
 		_ = json.Unmarshal(r.Params, &p)
 		resultType = "task_mutation"
-		result, err = s.store.CreateFromSource(ctx, r.RequestID, p.Text, store.TaskSource{Name: p.Source, Key: p.Key, URL: p.URL})
+		src := store.TaskSource{Name: p.Source, Key: p.Key, URL: p.URL}
+		if p.ReplySlack != nil {
+			src.ReplySlack = &store.SlackReplyTarget{ChannelID: p.ReplySlack.ChannelID, ThreadTS: p.ReplySlack.ThreadTS}
+		}
+		result, err = s.store.CreateFromSource(ctx, r.RequestID, p.Text, src)
 	case "task.get":
 		var p protocol.TaskSelector
 		_ = json.Unmarshal(r.Params, &p)
@@ -806,11 +810,34 @@ func (s *Server) taskContext(ctx context.Context, p protocol.TaskContextParams) 
 
 func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.TaskReplyParams) (protocol.TaskReplyDTO, error) {
 	source, err := s.store.GetSlackSource(ctx, p.Task)
+	if errors.Is(err, store.ErrNotFound) {
+		// A local task from a named source may carry a Slack thread to reply
+		// in. Without one, the task stays not found for task reply.
+		t, target, targetErr := s.store.GetTaskReplyTarget(ctx, p.Task)
+		if targetErr != nil {
+			return protocol.TaskReplyDTO{}, targetErr
+		}
+		// The target names no workspace: it is always the active one, so the
+		// Slack runtime must be available to prepare the reply.
+		op, release, opErr := s.ops()
+		if opErr != nil {
+			return protocol.TaskReplyDTO{}, opErr
+		}
+		teamID := op.TeamID()
+		release()
+		return s.replyInThread(ctx, requestID, p, t.ID, teamID, target.ChannelID, target.ThreadTS)
+	}
 	if err != nil {
 		return protocol.TaskReplyDTO{}, err
 	}
-	intent := store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: source.ThreadTS, Text: p.Text, RelatedTaskID: source.TaskID}
-	prepared, err := s.store.PrepareSlackEffect(ctx, requestID, store.SlackEffectTarget{TeamID: source.TeamID, ChannelID: source.ChannelID}, intent)
+	return s.replyInThread(ctx, requestID, p, source.TaskID, source.TeamID, source.ChannelID, source.ThreadTS)
+}
+
+// replyInThread durably posts p.Text into one Slack thread for a task and,
+// with p.Done, completes the task only after Slack confirms the post.
+func (s *Server) replyInThread(ctx context.Context, requestID string, p protocol.TaskReplyParams, taskID, teamID, channelID, threadTS string) (protocol.TaskReplyDTO, error) {
+	intent := store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: threadTS, Text: p.Text, RelatedTaskID: taskID}
+	prepared, err := s.store.PrepareSlackEffect(ctx, requestID, store.SlackEffectTarget{TeamID: teamID, ChannelID: channelID}, intent)
 	if err != nil {
 		return protocol.TaskReplyDTO{}, err
 	}
@@ -826,10 +853,10 @@ func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.Tas
 			return protocol.TaskReplyDTO{}, opErr
 		}
 		defer release()
-		if !op.Allows(source.TeamID, source.ChannelID) {
+		if !op.Allows(teamID, channelID) {
 			return protocol.TaskReplyDTO{}, slackops.ErrUnavailable
 		}
-		effect, err = op.Execute(ctx, requestID, source.ChannelID, intent)
+		effect, err = op.Execute(ctx, requestID, channelID, intent)
 		if err != nil {
 			return protocol.TaskReplyDTO{}, err
 		}
@@ -841,7 +868,7 @@ func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.Tas
 	if !p.Done || effect.State != store.SlackEffectConfirmed {
 		return out, nil
 	}
-	transition, err := s.store.Transition(ctx, taskReplyDoneRequestID(requestID), source.TaskID, task.Done, nil)
+	transition, err := s.store.Transition(ctx, taskReplyDoneRequestID(requestID), taskID, task.Done, nil)
 	if err != nil {
 		return protocol.TaskReplyDTO{}, err
 	}
@@ -1219,6 +1246,9 @@ func taskDTO(t store.Task) protocol.TaskDTO {
 	out := protocol.TaskDTO{TaskID: t.ID, Version: t.Version, State: string(t.State), Text: t.Text, SourceKind: t.SourceKind, CreatedAt: stamp(t.CreatedAt), UpdatedAt: stamp(t.UpdatedAt), DoneAt: done}
 	if t.Source != nil {
 		out.Source = &protocol.TaskSourceDTO{Name: t.Source.Name, Key: t.Source.Key, URL: t.Source.URL}
+		if t.Source.ReplySlack != nil {
+			out.Source.ReplySlack = &protocol.SlackThreadDTO{ChannelID: t.Source.ReplySlack.ChannelID, ThreadTS: t.Source.ReplySlack.ThreadTS}
+		}
 	}
 	return out
 }

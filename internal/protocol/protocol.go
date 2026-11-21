@@ -46,9 +46,13 @@ const (
 	// CapabilityTaskSources means task.create accepts a named source, an
 	// external deduplication key, and a URL, and task DTOs carry them.
 	CapabilityTaskSources = "task_sources_v1"
+	// CapabilityTaskReplyTargets means task.create accepts a Slack reply
+	// target for a named source, task DTOs carry it, and task.reply posts to
+	// it for such a local task.
+	CapabilityTaskReplyTargets = "task_reply_targets_v1"
 )
 
-var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources}
+var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets}
 
 var (
 	ErrEmptyFrame    = errors.New("protocol: empty frame")
@@ -143,12 +147,21 @@ type TaskSelector struct {
 // TaskCreateParams creates a local task. Source optionally names the feeder
 // that created it (requires task_sources_v1); Key and URL require Source.
 // With a Key, a task that already has the same Source and Key is returned
-// unchanged (changed=false) instead of creating another.
+// unchanged (changed=false) instead of creating another. ReplySlack names a
+// Slack thread for task.reply (requires task_reply_targets_v1 and Source).
 type TaskCreateParams struct {
-	Text   string `json:"text"`
-	Source string `json:"source,omitempty"`
-	Key    string `json:"key,omitempty"`
-	URL    string `json:"url,omitempty"`
+	Text       string          `json:"text"`
+	Source     string          `json:"source,omitempty"`
+	Key        string          `json:"key,omitempty"`
+	URL        string          `json:"url,omitempty"`
+	ReplySlack *SlackThreadDTO `json:"reply_slack,omitempty"`
+}
+
+// SlackThreadDTO is a Slack channel and thread root timestamp in the active
+// workspace.
+type SlackThreadDTO struct {
+	ChannelID string `json:"channel_id"`
+	ThreadTS  string `json:"thread_ts"`
 }
 type TaskUpdateParams struct {
 	Task string `json:"task"`
@@ -319,9 +332,10 @@ type TaskDTO struct {
 // TaskSourceDTO names the feeder that created a local task, with its
 // optional external deduplication key and link.
 type TaskSourceDTO struct {
-	Name string `json:"name"`
-	Key  string `json:"key,omitempty"`
-	URL  string `json:"url,omitempty"`
+	Name       string          `json:"name"`
+	Key        string          `json:"key,omitempty"`
+	URL        string          `json:"url,omitempty"`
+	ReplySlack *SlackThreadDTO `json:"reply_slack,omitempty"`
 }
 
 // SlackTaskActionsDTO is the durable recovery state for a Slack-origin task.
@@ -660,6 +674,9 @@ func ValidateParams(command string, raw json.RawMessage) error {
 		}
 		if (p.Source != "" && !task.ValidSourceName(p.Source)) || (p.Source == "" && (p.Key != "" || p.URL != "")) || (p.Key != "" && !task.ValidExternalKey(p.Key)) || (p.URL != "" && !task.ValidSourceURL(p.URL)) {
 			return errors.New("invalid task source")
+		}
+		if p.ReplySlack != nil && (p.Source == "" || slackapi.ValidateThreadTarget(p.ReplySlack.ChannelID, p.ReplySlack.ThreadTS) != nil) {
+			return errors.New("invalid task reply target")
 		}
 	case *TaskSelector:
 		if !validTaskSelector(p.Task) {

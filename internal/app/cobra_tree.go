@@ -254,7 +254,7 @@ func leafDescription(short, handler string) string {
 	case "task.list":
 		description += "\n\nUse either --state (open, working, or done) or --all."
 	case "task.watch":
-		description += "\n\nEach stdout line is one event: cursor=N change=created|edited|state task=ID version=N state=S source=local|slack|NAME channel=CHANNEL thread=THREAD_TS parent=TASK_ID key=KEY url=URL text=ESCAPED (channel and thread are empty for non-Slack tasks; parent is set for a thread follow-up; NAME, key, and url come from task create --source, --key, and --url), or one JSON object with --json. Without a cursor, currently open tasks are emitted first. Gateway reconnects are reported on stderr only. Watching never acknowledges or changes tasks."
+		description += "\n\nEach stdout line is one event: cursor=N change=created|edited|state task=ID version=N state=S source=local|slack|NAME channel=CHANNEL thread=THREAD_TS parent=TASK_ID key=KEY url=URL reply=CHANNEL:THREAD_TS text=ESCAPED (channel and thread are empty for non-Slack tasks; parent is set for a thread follow-up; NAME, key, url, and reply come from task create --source, --key, --url, and --reply-slack), or one JSON object with --json. Without a cursor, currently open tasks are emitted first. Gateway reconnects are reported on stderr only. Watching never acknowledges or changes tasks."
 	case "purge":
 		description += "\n\nProvide --before and exactly one of --dry-run or --confirm. Warning: confirmed removal is irreversible."
 	case "slack.file":
@@ -263,11 +263,11 @@ func leafDescription(short, handler string) string {
 		description += "\n\nProvide a non-empty --reason."
 	}
 	if handler == "task.create" {
-		description += "\n\n--source names the feeder that creates the task; --key and --url require it. With --key, a task that already has the same --source and --key is returned unchanged (changed=false) and nothing is created."
+		description += "\n\n--source names the feeder that creates the task; --key, --url, and --reply-slack require it. With --key, a task that already has the same --source and --key is returned unchanged (changed=false) and nothing is created. --reply-slack CHANNEL:THREAD_TS names a Slack thread in the active workspace that task reply posts into; the bot must be a member of that channel."
 	}
 	switch handler {
 	case "task.reply":
-		description += " Warning: --done completes the task only after Slack confirms the reply."
+		description += " The task is a Slack task or a local task created with --reply-slack. Warning: --done completes the task only after Slack confirms the reply."
 	case "effect.retry":
 		description += " Warning: retrying an ambiguous effect requires --confirm-duplicate-risk and can duplicate external work."
 	}
@@ -327,10 +327,11 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 			source, _ := cmd.Flags().GetString("source")
 			key, _ := cmd.Flags().GetString("key")
 			link, _ := cmd.Flags().GetString("url")
-			if cmd.Flags().Changed("source") && source == "" || cmd.Flags().Changed("key") && key == "" || cmd.Flags().Changed("url") && link == "" {
-				return usage("--source, --key, and --url must not be empty")
+			reply, _ := cmd.Flags().GetString("reply-slack")
+			if cmd.Flags().Changed("source") && source == "" || cmd.Flags().Changed("key") && key == "" || cmd.Flags().Changed("url") && link == "" || cmd.Flags().Changed("reply-slack") && reply == "" {
+				return usage("--source, --key, --url, and --reply-slack must not be empty")
 			}
-			origin = taskOrigin{Source: source, Key: key, URL: link}
+			origin = taskOrigin{Source: source, Key: key, URL: link, ReplySlack: reply}
 		}
 		return a.taskTyped(strings.TrimPrefix(handler, "task."), selector, text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin, "", false, 0, "", done, requestID, "", jsonOut, origin)
 	case "task.list":
@@ -414,7 +415,7 @@ var cobraLeafSpecs = []cobraLeafSpec{
 	{[]string{"gateway", "run"}, "Run the foreground local gateway.", "cue gateway run", false, "", "gateway.run", nil, nil},
 	{[]string{"gateway", "reload"}, "Validate and atomically activate staged configuration.", "cue gateway reload [--request-id ID] [--json]", false, "config_reload", "gateway.reload", []flagSpec{stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
 	{[]string{"gateway", "status"}, "Show local gateway status.", "cue gateway status [--json]", true, protocol.CapabilityStatus, "gateway.status", []flagSpec{boolFlag("json", "Render the status as JSON.")}, nil},
-	{[]string{"task", "create"}, "Create a local task, optionally from a named source.", "cue task create (--text TEXT|--text-file PATH|--stdin) [--source NAME [--key KEY] [--url URL]] [--request-id ID] [--json]", false, "local_tasks", "task.create", append(textFlags(), stringFlag("source", "Name of the feeder creating the task: 1-32 of a-z, 0-9, '-'; not local or slack."), stringFlag("key", "External key; a task with the same --source and --key is returned instead of creating another."), stringFlag("url", "http or https link to the item the task came from.")), nil},
+	{[]string{"task", "create"}, "Create a local task, optionally from a named source.", "cue task create (--text TEXT|--text-file PATH|--stdin) [--source NAME [--key KEY] [--url URL] [--reply-slack CHANNEL:THREAD_TS]] [--request-id ID] [--json]", false, "local_tasks", "task.create", append(textFlags(), stringFlag("source", "Name of the feeder creating the task: 1-32 of a-z, 0-9, '-'; not local or slack."), stringFlag("key", "External key; a task with the same --source and --key is returned instead of creating another."), stringFlag("url", "http or https link to the item the task came from."), stringFlag("reply-slack", "Slack thread for task reply, as CHANNEL:THREAD_TS (the thread root's timestamp).")), nil},
 	{[]string{"task", "list"}, "List durable tasks.", "cue task list [--state open|working|done|--all] [--limit N] [--cursor TASK_ID] [--json]", true, "local_tasks", "task.list", []flagSpec{stringFlag("state", "Filter by open, working, or done state."), boolFlag("all", "Include completed tasks."), intFlag("limit", "Maximum number of tasks."), stringFlag("cursor", "Resume after this task ID."), boolFlag("json", "Render the list as JSON.")}, nil},
 	{[]string{"task", "show"}, "Show current durable task state.", "cue task show TASK [--json]", true, "local_tasks", "task.show", []flagSpec{boolFlag("json", "Render the task as JSON.")}, nil},
 	{[]string{"task", "context"}, "Show durable task state with one bounded live Slack thread page.", "cue task context TASK [--thread-limit N] [--json]", true, protocol.CapabilityTaskContext, "task.context", []flagSpec{intFlag("thread-limit", "Maximum live thread messages (default 20; maximum 100)."), boolFlag("json", "Render the context as JSON.")}, nil},

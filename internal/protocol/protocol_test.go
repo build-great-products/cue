@@ -38,7 +38,7 @@ func TestAdditiveCapabilitiesAreAdvertisedWithoutProtocolBump(t *testing.T) {
 	if Version != 1 {
 		t.Fatalf("additive commands unexpectedly changed protocol version to %d", Version)
 	}
-	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges, CapabilityTaskSources} {
+	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges, CapabilityTaskSources, CapabilityTaskReplyTargets} {
 		found := false
 		for _, advertised := range ServerCapabilities {
 			found = found || advertised == capability
@@ -333,6 +333,26 @@ func TestTaskDTOOmitsAbsentSource(t *testing.T) {
 	}
 	named, _ := json.Marshal(TaskDTO{TaskID: "t", SourceKind: "local", Source: &TaskSourceDTO{Name: "tickets", Key: "k", URL: "https://example.com"}})
 	if !bytes.Contains(named, []byte(`"source":{"name":"tickets","key":"k","url":"https://example.com"}`)) {
+		t.Fatalf("named task = %s", named)
+	}
+}
+
+func TestTaskCreateReplyTargetParamsAreStrict(t *testing.T) {
+	for raw, valid := range map[string]bool{
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"C0TICKETS","thread_ts":"1700000500.000100"}}`:               true,
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"G0PRIVATE","thread_ts":"1700000500.000100"}}`:               true,
+		`{"text":"x","reply_slack":{"channel_id":"C0TICKETS","thread_ts":"1700000500.000100"}}`:                            false,
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"D0DIRECT","thread_ts":"1700000500.000100"}}`:                false,
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"C0TICKETS","thread_ts":"1700000500"}}`:                      false,
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"C0TICKETS"}}`:                                               false,
+		`{"text":"x","source":"t","reply_slack":{"channel_id":"C0TICKETS","thread_ts":"1700000500.000100","team_id":"T"}}`: false,
+	} {
+		if err := ValidateParams("task.create", json.RawMessage(raw)); (err == nil) != valid {
+			t.Errorf("%s valid=%v err=%v", raw, valid, err)
+		}
+	}
+	named, _ := json.Marshal(TaskDTO{TaskID: "t", SourceKind: "local", Source: &TaskSourceDTO{Name: "tickets", ReplySlack: &SlackThreadDTO{ChannelID: "C0TICKETS", ThreadTS: "1700000500.000100"}}})
+	if !bytes.Contains(named, []byte(`"source":{"name":"tickets","reply_slack":{"channel_id":"C0TICKETS","thread_ts":"1700000500.000100"}}`)) {
 		t.Fatalf("named task = %s", named)
 	}
 }

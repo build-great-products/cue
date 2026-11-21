@@ -18,7 +18,7 @@ func TestTaskWatchTextIsOneReversibleLine(t *testing.T) {
 	if err := writeTaskWatchLine(&out, change, false); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "cursor=7 change=edited task=AbCdEfGhIjKlMnOpQrStUv version=2 state=open source=slack channel=C0CC6JQ4A2U thread=1700000000.000001 parent=ParentTaskIdParentTask key= url= text=x\\ny\n" {
+	if out.String() != "cursor=7 change=edited task=AbCdEfGhIjKlMnOpQrStUv version=2 state=open source=slack channel=C0CC6JQ4A2U thread=1700000000.000001 parent=ParentTaskIdParentTask key= url= reply= text=x\\ny\n" {
 		t.Fatalf("line=%q", out.String())
 	}
 	out.Reset()
@@ -26,7 +26,7 @@ func TestTaskWatchTextIsOneReversibleLine(t *testing.T) {
 	if err := writeTaskWatchLine(&out, local, false); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "cursor=8 change=created task=LocalTaskIdLocalTaskId version=1 state=open source=local channel= thread= parent= key= url= text=local\n" {
+	if out.String() != "cursor=8 change=created task=LocalTaskIdLocalTaskId version=1 state=open source=local channel= thread= parent= key= url= reply= text=local\n" {
 		t.Fatalf("local line=%q", out.String())
 	}
 	out.Reset()
@@ -34,8 +34,16 @@ func TestTaskWatchTextIsOneReversibleLine(t *testing.T) {
 	if err := writeTaskWatchLine(&out, named, false); err != nil {
 		t.Fatal(err)
 	}
-	if out.String() != "cursor=9 change=created task=NamedTaskIdNamedTaskId version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-991 url=https://example.com/tickets/378 text=ticket comment\n" {
+	if out.String() != "cursor=9 change=created task=NamedTaskIdNamedTaskId version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-991 url=https://example.com/tickets/378 reply= text=ticket comment\n" {
 		t.Fatalf("named line=%q", out.String())
+	}
+	out.Reset()
+	replyable := protocol.TaskChangeDTO{ChangeSeq: 10, Change: "created", Task: protocol.TaskDTO{TaskID: "ReplyTaskIdReplyTaskId", Version: 1, State: "open", SourceKind: "local", Text: "ticket comment", Source: &protocol.TaskSourceDTO{Name: "tickets", Key: "tickets:378:comment-992", ReplySlack: &protocol.SlackThreadDTO{ChannelID: "C0TICKETS", ThreadTS: "1700000500.000100"}}}}
+	if err := writeTaskWatchLine(&out, replyable, false); err != nil {
+		t.Fatal(err)
+	}
+	if out.String() != "cursor=10 change=created task=ReplyTaskIdReplyTaskId version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-992 url= reply=C0TICKETS:1700000500.000100 text=ticket comment\n" {
+		t.Fatalf("reply target line=%q", out.String())
 	}
 	out.Reset()
 	if err := writeTaskWatchLine(&out, change, true); err != nil {

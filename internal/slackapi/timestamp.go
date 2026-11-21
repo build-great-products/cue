@@ -87,3 +87,19 @@ func leftPadMicros(value int64) string {
 	}
 	return text
 }
+
+// MaxStoredTimestampBytes is the longest timestamp the ledger schema stores.
+const MaxStoredTimestampBytes = 32
+
+// ValidateThreadTarget validates a channel and thread root timestamp that a
+// caller names as a place to reply, such as a local task's reply target.
+func ValidateThreadTarget(channelID, threadTS string) error {
+	if err := ValidateChannelID(channelID); err != nil {
+		return err
+	}
+	if len(threadTS) > MaxStoredTimestampBytes {
+		return errors.New("invalid Slack timestamp")
+	}
+	_, err := ParseTimestamp(threadTS)
+	return err
+}

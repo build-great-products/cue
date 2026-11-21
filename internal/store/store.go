@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	SchemaVersion      = 11
+	SchemaVersion      = 12
 	ApplicationID      = 0x4d435030 // "MCP0"
 	RequestRetention   = 30 * 24 * time.Hour
 	defaultBusyTimeout = 5 * time.Second
@@ -64,6 +64,9 @@ var migration0010 []byte
 
 //go:embed migrations/0011_task_sources.sql
 var migration0011 []byte
+
+//go:embed migrations/0012_task_reply_targets.sql
+var migration0012 []byte
 
 var (
 	ErrIncompatibleSchema = errors.New("incompatible SQLite schema")
@@ -164,6 +167,8 @@ func migrationChecksum(version int) string {
 		migration = migration0010
 	case 11:
 		migration = migration0011
+	case 12:
+		migration = migration0012
 	default:
 		return ""
 	}
@@ -346,7 +351,7 @@ func (s *Store) initialize(ctx context.Context, created bool) error {
 	for _, migration := range []struct {
 		version int
 		sql     []byte
-	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}} {
+	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}, {12, migration0012}} {
 		if _, err = tx.ExecContext(ctx, string(migration.sql)); err != nil {
 			return err
 		}
@@ -384,7 +389,7 @@ func (s *Store) upgrade(ctx context.Context, fromVersion int) error {
 	if err := compatibleVersion(ctx, tx, fromVersion); err != nil {
 		return err
 	}
-	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011}
+	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011, 12: migration0012}
 	for version := fromVersion + 1; version <= SchemaVersion; version++ {
 		migration, ok := migrations[version]
 		if !ok {
@@ -505,7 +510,7 @@ func expectedSchemaFingerprints(ctx context.Context, version int) (map[string]st
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011}
+	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012}
 	if version < 1 || version > len(migrations) {
 		return nil, errors.New("unknown schema version")
 	}
@@ -791,11 +796,11 @@ func (s *Store) List(ctx context.Context, stateFilter *string, includeDone bool,
 		var t Task
 		var created, updated int64
 		var done sql.NullInt64
-		var sourceName, sourceKey, sourceURL sql.NullString
-		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done, &sourceName, &sourceKey, &sourceURL); err != nil {
+		var src taskSourceScan
+		if err := rows.Scan(append([]any{&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done}, src.dest()...)...); err != nil {
 			return nil, "", err
 		}
-		t.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
+		t.Source = src.source()
 		t.CreatedAt = time.UnixMicro(created).UTC()
 		t.UpdatedAt = time.UnixMicro(updated).UTC()
 		if done.Valid {
@@ -835,11 +840,11 @@ func getTx(ctx context.Context, q queryer, selector string) (Task, error) {
 		var t Task
 		var created, updated int64
 		var done sql.NullInt64
-		var sourceName, sourceKey, sourceURL sql.NullString
-		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done, &sourceName, &sourceKey, &sourceURL); err != nil {
+		var src taskSourceScan
+		if err := rows.Scan(append([]any{&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done}, src.dest()...)...); err != nil {
 			return Task{}, err
 		}
-		t.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
+		t.Source = src.source()
 		t.CreatedAt = time.UnixMicro(created).UTC()
 		t.UpdatedAt = time.UnixMicro(updated).UTC()
 		if done.Valid {

@@ -140,7 +140,7 @@ func renderTaskCard(out *bytes.Buffer, task map[string]any) {
 		fmt.Fprintf(out, "  updated %s", updated)
 	}
 	fmt.Fprintln(out)
-	if origin != nil && (present(origin["key"]) != "" || present(origin["url"]) != "") {
+	if origin != nil {
 		parts := []string{}
 		if key := present(origin["key"]); key != "" {
 			parts = append(parts, "key "+key)
@@ -148,7 +148,12 @@ func renderTaskCard(out *bytes.Buffer, task map[string]any) {
 		if link := present(origin["url"]); link != "" {
 			parts = append(parts, link)
 		}
-		fmt.Fprintln(out, strings.Join(parts, "  "))
+		if reply, ok := origin["reply_slack"].(map[string]any); ok {
+			parts = append(parts, "reply="+present(reply["channel_id"])+":"+present(reply["thread_ts"]))
+		}
+		if len(parts) > 0 {
+			fmt.Fprintln(out, strings.Join(parts, "  "))
+		}
 	}
 	if source, ok := task["slack_source"].(map[string]any); ok {
 		fmt.Fprintf(out, "Slack %s  thread %s", present(source["channel_id"]), present(source["thread_ts"]))

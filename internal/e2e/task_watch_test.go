@@ -204,15 +204,15 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 
 	// Without a cursor the watcher first emits currently open tasks only.
 	watch := startWatch("--cursor-file", cursorFile)
-	if got := watch.next(t); !strings.HasPrefix(got, "cursor=1 change=created task="+backlogTask+" version=1 state=open source=local channel= thread= parent= key= url= text=already open") {
+	if got := watch.next(t); !strings.HasPrefix(got, "cursor=1 change=created task="+backlogTask+" version=1 state=open source=local channel= thread= parent= key= url= reply= text=already open") {
 		t.Fatalf("backlog line=%q", got)
 	}
 	multiline := createTask("line one\n\tline two \\ end\n")
-	if got, want := watch.next(t), "cursor=4 change=created task="+multiline+" version=1 state=open source=local channel= thread= parent= key= url= text=line one\\n\\tline two \\\\ end\\n"; got != want {
+	if got, want := watch.next(t), "cursor=4 change=created task="+multiline+" version=1 state=open source=local channel= thread= parent= key= url= reply= text=line one\\n\\tline two \\\\ end\\n"; got != want {
 		t.Fatalf("multiline line=%q want %q", got, want)
 	}
 	run("task", "update", backlogTask, "--text", "already open, edited", "--json")
-	if got, want := watch.next(t), "cursor=5 change=edited task="+backlogTask+" version=2 state=open source=local channel= thread= parent= key= url= text=already open, edited"; got != want {
+	if got, want := watch.next(t), "cursor=5 change=edited task="+backlogTask+" version=2 state=open source=local channel= thread= parent= key= url= reply= text=already open, edited"; got != want {
 		t.Fatalf("edit line=%q want %q", got, want)
 	}
 	// State changes away from open are filtered by default but still advance
@@ -279,7 +279,7 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 	if !first.Changed {
 		t.Fatalf("first source create = %#v", first)
 	}
-	if got, want := sourceWatch.next(t), "cursor=10 change=created task="+first.TaskID+" version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-991 url=https://example.com/tickets/378 text=Comment on ticket 378"; got != want {
+	if got, want := sourceWatch.next(t), "cursor=10 change=created task="+first.TaskID+" version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-991 url=https://example.com/tickets/378 reply= text=Comment on ticket 378"; got != want {
 		t.Fatalf("source line=%q want %q", got, want)
 	}
 	if again := createFromSource("Comment on ticket 378, polled again"); again.Changed || again.TaskID != first.TaskID || again.Version != 1 {

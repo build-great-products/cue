@@ -143,6 +143,33 @@ func TestTaskCreateFromSourceRequestsAndCapability(t *testing.T) {
 	})
 }
 
+// TestTaskCreateReplySlackRequestsAndCapability locks the reply target
+// request shape and proves the CLI refuses a gateway without
+// task_reply_targets_v1.
+func TestTaskCreateReplySlackRequestsAndCapability(t *testing.T) {
+	endpoint := characterizationEndpoint(t)
+	args := []string{"task", "create", "--text", "ticket comment", "--source", "tickets", "--key", "tickets:378:comment-992", "--reply-slack", "C0TICKETS:1700000500.000100", "--request-id", "req_reply_create", "--json"}
+	t.Run("current gateway", func(t *testing.T) {
+		requests := serveCharacterizationGatewayWith(t, endpoint, []string{protocol.CapabilityLocalTasks, protocol.CapabilityTaskSources, protocol.CapabilityTaskReplyTargets})
+		var stdout, stderr bytes.Buffer
+		if exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), args); exit != ExitSuccess {
+			t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+		}
+		req := <-requests
+		var params protocol.TaskCreateParams
+		if err := json.Unmarshal(req.Params, &params); err != nil || req.Command != "task.create" || params.ReplySlack == nil || *params.ReplySlack != (protocol.SlackThreadDTO{ChannelID: "C0TICKETS", ThreadTS: "1700000500.000100"}) || params.Source != "tickets" || params.Key != "tickets:378:comment-992" {
+			t.Fatalf("request=%+v params=%#v err=%v", req, params, err)
+		}
+	})
+	t.Run("gateway without task_reply_targets_v1", func(t *testing.T) {
+		_ = serveCharacterizationGatewayWith(t, endpoint, []string{protocol.CapabilityLocalTasks, protocol.CapabilityTaskSources})
+		var stdout, stderr bytes.Buffer
+		if exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), args); exit != ExitUnsupported {
+			t.Fatalf("old gateway exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+		}
+	})
+}
+
 func TestTaskCreateSourceFlagsAreValidatedLocally(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
@@ -157,6 +184,14 @@ func TestTaskCreateSourceFlagsAreValidatedLocally(t *testing.T) {
 		{"--source", "ok", "--key", "a b"},
 		{"--source", "ok", "--key", ""},
 		{"--source", "ok", "--url", "file:///etc/passwd"},
+		{"--reply-slack", "C0TICKETS:1700000500.000100"},
+		{"--source", "ok", "--reply-slack", ""},
+		{"--source", "ok", "--reply-slack", "C0TICKETS"},
+		{"--source", "ok", "--reply-slack", "C0TICKETS:"},
+		{"--source", "ok", "--reply-slack", ":1700000500.000100"},
+		{"--source", "ok", "--reply-slack", "D0DIRECT:1700000500.000100"},
+		{"--source", "ok", "--reply-slack", "C0TICKETS:1700000500"},
+		{"--source", "ok", "--reply-slack", "C0TICKETS:1700000500.000100:extra"},
 	} {
 		var stdout, stderr bytes.Buffer
 		args := append([]string{"task", "create", "--text", "x"}, extra...)
