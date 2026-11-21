@@ -239,7 +239,7 @@ func TestUnsupportedRemoteMapsToExit9(t *testing.T) {
 }
 
 // TestCLIExternalExitMappingsAndForbiddenFlags protects stable external-error
-// exit codes and rejects options that could bypass single-channel/file rules.
+// exit codes and rejects options that could bypass single-file rules.
 func TestCLIExternalExitMappingsAndForbiddenFlags(t *testing.T) {
 	for _, tc := range []struct {
 		category string
@@ -253,7 +253,11 @@ func TestCLIExternalExitMappingsAndForbiddenFlags(t *testing.T) {
 			}
 		})
 	}
-	for _, args := range [][]string{{"slack", "history", "--channel", "C123"}, {"file", "get", "fil_x", "--force"}, {"slack", "file", "--file", "one", "--file", "two"}} {
+	// Never let a usage case reach a real gateway from the developer's XDG roots.
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", root+"/config")
+	t.Setenv("XDG_STATE_HOME", root+"/state")
+	for _, args := range [][]string{{"file", "get", "fil_x", "--force"}, {"slack", "file", "--file", "one", "--file", "two"}} {
 		var out, stderr bytes.Buffer
 		if got := (App{Out: &out, Err: &stderr}).Run(context.Background(), args); got != ExitUsage {
 			t.Fatalf("Run(%q) = %d, stderr=%q", args, got, stderr.String())

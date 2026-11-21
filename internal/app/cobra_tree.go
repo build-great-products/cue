@@ -254,13 +254,16 @@ func leafDescription(short, handler string) string {
 	case "task.list":
 		description += "\n\nUse either --state (open, working, or done) or --all."
 	case "task.watch":
-		description += "\n\nEach stdout line is one event: cursor=N change=created|edited|state task=ID version=N state=S source=local|slack channel=CHANNEL thread=THREAD_TS parent=TASK_ID text=ESCAPED (channel and thread are empty for local tasks; parent is set for a thread follow-up), or one JSON object with --json. Without a cursor, currently open tasks are emitted first. Gateway reconnects are reported on stderr only. Watching never acknowledges or changes tasks."
+		description += "\n\nEach stdout line is one event: cursor=N change=created|edited|state task=ID version=N state=S source=local|slack|NAME channel=CHANNEL thread=THREAD_TS parent=TASK_ID key=KEY url=URL text=ESCAPED (channel and thread are empty for non-Slack tasks; parent is set for a thread follow-up; NAME, key, and url come from task create --source, --key, and --url), or one JSON object with --json. Without a cursor, currently open tasks are emitted first. Gateway reconnects are reported on stderr only. Watching never acknowledges or changes tasks."
 	case "purge":
 		description += "\n\nProvide --before and exactly one of --dry-run or --confirm. Warning: confirmed removal is irreversible."
 	case "slack.file":
 		description += "\n\nProvide at least one --file PATH."
 	case "slack.delete", "effect.retry":
 		description += "\n\nProvide a non-empty --reason."
+	}
+	if handler == "task.create" {
+		description += "\n\n--source names the feeder that creates the task; --key and --url require it. With --key, a task that already has the same --source and --key is returned unchanged (changed=false) and nothing is created."
 	}
 	switch handler {
 	case "task.reply":
@@ -319,15 +322,25 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 		if len(args) != 0 {
 			selector = args[0]
 		}
-		return a.taskTyped(strings.TrimPrefix(handler, "task."), selector, text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin, "", false, 0, "", done, requestID, "", jsonOut)
+		var origin taskOrigin
+		if handler == "task.create" {
+			source, _ := cmd.Flags().GetString("source")
+			key, _ := cmd.Flags().GetString("key")
+			link, _ := cmd.Flags().GetString("url")
+			if cmd.Flags().Changed("source") && source == "" || cmd.Flags().Changed("key") && key == "" || cmd.Flags().Changed("url") && link == "" {
+				return usage("--source, --key, and --url must not be empty")
+			}
+			origin = taskOrigin{Source: source, Key: key, URL: link}
+		}
+		return a.taskTyped(strings.TrimPrefix(handler, "task."), selector, text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin, "", false, 0, "", done, requestID, "", jsonOut, origin)
 	case "task.list":
 		state, _ := cmd.Flags().GetString("state")
 		all, _ := cmd.Flags().GetBool("all")
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
-		return a.taskTyped("list", "", "", "", false, false, false, state, all, limit, "", false, "", cursor, jsonOut)
+		return a.taskTyped("list", "", "", "", false, false, false, state, all, limit, "", false, "", cursor, jsonOut, taskOrigin{})
 	case "task.show":
-		return a.taskTyped("show", args[0], "", "", false, false, false, "", false, 0, "", false, "", "", jsonOut)
+		return a.taskTyped("show", args[0], "", "", false, false, false, "", false, 0, "", false, "", "", jsonOut, taskOrigin{})
 	case "task.context":
 		limit, _ := cmd.Flags().GetInt("thread-limit")
 		return a.taskContextTyped(args[0], limit, jsonOut)
@@ -341,7 +354,7 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 	case "task.open", "task.working", "task.done":
 		note, _ := cmd.Flags().GetString("note")
 		requestID, _ := cmd.Flags().GetString("request-id")
-		return a.taskTyped(strings.TrimPrefix(handler, "task."), args[0], "", "", false, false, false, "", false, 0, note, false, requestID, "", jsonOut)
+		return a.taskTyped(strings.TrimPrefix(handler, "task."), args[0], "", "", false, false, false, "", false, 0, note, false, requestID, "", jsonOut, taskOrigin{})
 	case "effect.list":
 		state, _ := cmd.Flags().GetString("state")
 		task, _ := cmd.Flags().GetString("task")
@@ -401,7 +414,7 @@ var cobraLeafSpecs = []cobraLeafSpec{
 	{[]string{"gateway", "run"}, "Run the foreground local gateway.", "cue gateway run", false, "", "gateway.run", nil, nil},
 	{[]string{"gateway", "reload"}, "Validate and atomically activate staged configuration.", "cue gateway reload [--request-id ID] [--json]", false, "config_reload", "gateway.reload", []flagSpec{stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
 	{[]string{"gateway", "status"}, "Show local gateway status.", "cue gateway status [--json]", true, protocol.CapabilityStatus, "gateway.status", []flagSpec{boolFlag("json", "Render the status as JSON.")}, nil},
-	{[]string{"task", "create"}, "Create a local task.", "cue task create (--text TEXT|--text-file PATH|--stdin) [--request-id ID] [--json]", false, "local_tasks", "task.create", textFlags(), nil},
+	{[]string{"task", "create"}, "Create a local task, optionally from a named source.", "cue task create (--text TEXT|--text-file PATH|--stdin) [--source NAME [--key KEY] [--url URL]] [--request-id ID] [--json]", false, "local_tasks", "task.create", append(textFlags(), stringFlag("source", "Name of the feeder creating the task: 1-32 of a-z, 0-9, '-'; not local or slack."), stringFlag("key", "External key; a task with the same --source and --key is returned instead of creating another."), stringFlag("url", "http or https link to the item the task came from.")), nil},
 	{[]string{"task", "list"}, "List durable tasks.", "cue task list [--state open|working|done|--all] [--limit N] [--cursor TASK_ID] [--json]", true, "local_tasks", "task.list", []flagSpec{stringFlag("state", "Filter by open, working, or done state."), boolFlag("all", "Include completed tasks."), intFlag("limit", "Maximum number of tasks."), stringFlag("cursor", "Resume after this task ID."), boolFlag("json", "Render the list as JSON.")}, nil},
 	{[]string{"task", "show"}, "Show current durable task state.", "cue task show TASK [--json]", true, "local_tasks", "task.show", []flagSpec{boolFlag("json", "Render the task as JSON.")}, nil},
 	{[]string{"task", "context"}, "Show durable task state with one bounded live Slack thread page.", "cue task context TASK [--thread-limit N] [--json]", true, protocol.CapabilityTaskContext, "task.context", []flagSpec{intFlag("thread-limit", "Maximum live thread messages (default 20; maximum 100)."), boolFlag("json", "Render the context as JSON.")}, nil},

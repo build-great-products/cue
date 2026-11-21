@@ -38,7 +38,7 @@ func TestAdditiveCapabilitiesAreAdvertisedWithoutProtocolBump(t *testing.T) {
 	if Version != 1 {
 		t.Fatalf("additive commands unexpectedly changed protocol version to %d", Version)
 	}
-	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges} {
+	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges, CapabilityTaskSources} {
 		found := false
 		for _, advertised := range ServerCapabilities {
 			found = found || advertised == capability
@@ -301,5 +301,38 @@ func TestTaskChangesParamsAreStrictAndBounded(t *testing.T) {
 		if err := ValidateParams("task.changes", json.RawMessage(raw)); (err == nil) != valid {
 			t.Errorf("%s valid=%v err=%v", raw, valid, err)
 		}
+	}
+}
+
+func TestTaskCreateSourceParamsAreStrict(t *testing.T) {
+	for raw, valid := range map[string]bool{
+		`{"text":"x"}`:                    true,
+		`{"text":"x","source":"tickets"}`: true,
+		`{"text":"x","source":"tickets","key":"tickets:1/c#2","url":"https://example.com/1"}`: true,
+		`{"text":"x","source":"a-1","url":"http://example.com"}`:                              true,
+		`{"text":"x","key":"k"}`:                                    false,
+		`{"text":"x","url":"https://example.com"}`:                  false,
+		`{"text":"x","source":"slack"}`:                             false,
+		`{"text":"x","source":"local"}`:                             false,
+		`{"text":"x","source":"Tickets"}`:                           false,
+		`{"text":"x","source":"abcdefghijklmnopqrstuvwxyz0123456"}`: false,
+		`{"text":"x","source":"t","key":"a b"}`:                     false,
+		`{"text":"x","source":"t","url":"javascript:alert(1)"}`:     false,
+		`{"text":"x","source":"t","extra":1}`:                       false,
+	} {
+		if err := ValidateParams("task.create", json.RawMessage(raw)); (err == nil) != valid {
+			t.Errorf("%s valid=%v err=%v", raw, valid, err)
+		}
+	}
+}
+
+func TestTaskDTOOmitsAbsentSource(t *testing.T) {
+	plain, _ := json.Marshal(TaskDTO{TaskID: "t", SourceKind: "local"})
+	if bytes.Contains(plain, []byte(`"source":`)) {
+		t.Fatalf("plain task = %s", plain)
+	}
+	named, _ := json.Marshal(TaskDTO{TaskID: "t", SourceKind: "local", Source: &TaskSourceDTO{Name: "tickets", Key: "k", URL: "https://example.com"}})
+	if !bytes.Contains(named, []byte(`"source":{"name":"tickets","key":"k","url":"https://example.com"}`)) {
+		t.Fatalf("named task = %s", named)
 	}
 }

@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	SchemaVersion      = 10
+	SchemaVersion      = 11
 	ApplicationID      = 0x4d435030 // "MCP0"
 	RequestRetention   = 30 * 24 * time.Hour
 	defaultBusyTimeout = 5 * time.Second
@@ -61,6 +61,9 @@ var migration0009 []byte
 
 //go:embed migrations/0010_drop_trusted_users.sql
 var migration0010 []byte
+
+//go:embed migrations/0011_task_sources.sql
+var migration0011 []byte
 
 var (
 	ErrIncompatibleSchema = errors.New("incompatible SQLite schema")
@@ -97,6 +100,8 @@ type Task struct {
 	State                task.State
 	CreatedAt, UpdatedAt time.Time
 	DoneAt               *time.Time
+	// Source is set only for a local task created by a named source.
+	Source *TaskSource
 }
 
 type MutationResult struct {
@@ -157,6 +162,8 @@ func migrationChecksum(version int) string {
 		migration = migration0009
 	case 10:
 		migration = migration0010
+	case 11:
+		migration = migration0011
 	default:
 		return ""
 	}
@@ -339,7 +346,7 @@ func (s *Store) initialize(ctx context.Context, created bool) error {
 	for _, migration := range []struct {
 		version int
 		sql     []byte
-	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}} {
+	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}} {
 		if _, err = tx.ExecContext(ctx, string(migration.sql)); err != nil {
 			return err
 		}
@@ -377,7 +384,7 @@ func (s *Store) upgrade(ctx context.Context, fromVersion int) error {
 	if err := compatibleVersion(ctx, tx, fromVersion); err != nil {
 		return err
 	}
-	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010}
+	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011}
 	for version := fromVersion + 1; version <= SchemaVersion; version++ {
 		migration, ok := migrations[version]
 		if !ok {
@@ -498,7 +505,7 @@ func expectedSchemaFingerprints(ctx context.Context, version int) (map[string]st
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010}
+	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011}
 	if version < 1 || version > len(migrations) {
 		return nil, errors.New("unknown schema version")
 	}
@@ -542,26 +549,9 @@ func hash(operation string, values ...string) string {
 	return hex.EncodeToString(h.Sum(nil))
 }
 
+// Create creates a plain local task.
 func (s *Store) Create(ctx context.Context, requestID, text string) (MutationResult, error) {
-	normalized, normalizeErr := task.NormalizeText(text)
-	canonical := normalized
-	if normalizeErr != nil {
-		canonical = text
-	}
-	return s.mutate(ctx, request{"task.create", hash("task.create", canonical)}, requestID, func(tx *sql.Tx, now int64) (MutationResult, error) {
-		if normalizeErr != nil {
-			return MutationResult{}, invalidInput(normalizeErr.Error())
-		}
-		text := normalized
-		id, err := s.ids.NewTaskID()
-		if err != nil {
-			return MutationResult{}, err
-		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO tasks(task_id,version,state,text,source_kind,created_at,updated_at,done_at) VALUES(?,1,'open',?,'local',?,?,NULL)", id, text, now, now); err != nil {
-			return MutationResult{}, err
-		}
-		return result(id, 1, task.Open, true, now, now), nil
-	})
+	return s.CreateFromSource(ctx, requestID, text, TaskSource{})
 }
 func (s *Store) Update(ctx context.Context, requestID, selector, text string) (MutationResult, error) {
 	normalized, normalizeErr := task.NormalizeText(text)
@@ -773,23 +763,23 @@ func (s *Store) List(ctx context.Context, stateFilter *string, includeDone bool,
 			return nil, "", err
 		}
 	}
-	q := "SELECT task_id,version,state,text,source_kind,created_at,updated_at,done_at FROM tasks"
+	q := "SELECT t.task_id,t.version,t.state,t.text,t.source_kind,t.created_at,t.updated_at,t.done_at," + taskSourceColumns + " FROM tasks t LEFT JOIN task_sources x ON x.task_id=t.task_id"
 	args := []any{}
 	conditions := []string{}
 	if stateFilter != nil {
-		conditions = append(conditions, "state=?")
+		conditions = append(conditions, "t.state=?")
 		args = append(args, *stateFilter)
 	} else if !includeDone {
-		conditions = append(conditions, "state IN ('open','working')")
+		conditions = append(conditions, "t.state IN ('open','working')")
 	}
 	if cursor != "" {
-		conditions = append(conditions, "(created_at > ? OR (created_at = ? AND task_id > ?))")
+		conditions = append(conditions, "(t.created_at > ? OR (t.created_at = ? AND t.task_id > ?))")
 		args = append(args, anchorCreated, anchorCreated, cursor)
 	}
 	if len(conditions) > 0 {
 		q += " WHERE " + strings.Join(conditions, " AND ")
 	}
-	q += " ORDER BY created_at,task_id LIMIT ?"
+	q += " ORDER BY t.created_at,t.task_id LIMIT ?"
 	args = append(args, limit+1)
 	rows, err := s.db.QueryContext(ctx, q, args...)
 	if err != nil {
@@ -801,9 +791,11 @@ func (s *Store) List(ctx context.Context, stateFilter *string, includeDone bool,
 		var t Task
 		var created, updated int64
 		var done sql.NullInt64
-		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done); err != nil {
+		var sourceName, sourceKey, sourceURL sql.NullString
+		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done, &sourceName, &sourceKey, &sourceURL); err != nil {
 			return nil, "", err
 		}
+		t.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
 		t.CreatedAt = time.UnixMicro(created).UTC()
 		t.UpdatedAt = time.UnixMicro(updated).UTC()
 		if done.Valid {
@@ -833,7 +825,7 @@ func getTx(ctx context.Context, q queryer, selector string) (Task, error) {
 	if !ok {
 		return Task{}, ErrNotFound
 	}
-	rows, err := q.QueryContext(ctx, "SELECT task_id,version,state,text,source_kind,created_at,updated_at,done_at FROM tasks WHERE task_id=? OR substr(task_id,1,length(?))=? ORDER BY task_id LIMIT 2", canonical, canonical, canonical)
+	rows, err := q.QueryContext(ctx, "SELECT t.task_id,t.version,t.state,t.text,t.source_kind,t.created_at,t.updated_at,t.done_at,"+taskSourceColumns+" FROM tasks t LEFT JOIN task_sources x ON x.task_id=t.task_id WHERE t.task_id=? OR substr(t.task_id,1,length(?))=? ORDER BY t.task_id LIMIT 2", canonical, canonical, canonical)
 	if err != nil {
 		return Task{}, err
 	}
@@ -843,9 +835,11 @@ func getTx(ctx context.Context, q queryer, selector string) (Task, error) {
 		var t Task
 		var created, updated int64
 		var done sql.NullInt64
-		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done); err != nil {
+		var sourceName, sourceKey, sourceURL sql.NullString
+		if err := rows.Scan(&t.ID, &t.Version, &t.State, &t.Text, &t.SourceKind, &created, &updated, &done, &sourceName, &sourceKey, &sourceURL); err != nil {
 			return Task{}, err
 		}
+		t.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
 		t.CreatedAt = time.UnixMicro(created).UTC()
 		t.UpdatedAt = time.UnixMicro(updated).UTC()
 		if done.Valid {

@@ -65,8 +65,8 @@ func (s *Store) TaskChanges(ctx context.Context, after int64, limit int) ([]Task
 		return nil, 0, ErrTaskChangeCursorAhead
 	}
 	rows, err := tx.QueryContext(ctx, `SELECT t.change_seq,t.change_kind,t.task_id,t.version,t.state,t.text,t.source_kind,t.created_at,t.updated_at,t.done_at,
-		s.initial_source_event_id,s.team_id,s.channel_id,s.author_user_id,s.message_ts,s.thread_ts,s.permalink,s.latest_event_at_us,s.source_deleted_at_us,s.created_at_us,s.updated_at_us,s.parent_task_id
-		FROM tasks t LEFT JOIN slack_task_sources s ON s.task_id=t.task_id
+		s.initial_source_event_id,s.team_id,s.channel_id,s.author_user_id,s.message_ts,s.thread_ts,s.permalink,s.latest_event_at_us,s.source_deleted_at_us,s.created_at_us,s.updated_at_us,s.parent_task_id,`+taskSourceColumns+`
+		FROM tasks t LEFT JOIN slack_task_sources s ON s.task_id=t.task_id LEFT JOIN task_sources x ON x.task_id=t.task_id
 		WHERE t.change_seq>? ORDER BY t.change_seq LIMIT ?`, after, limit)
 	if err != nil {
 		return nil, 0, err

@@ -204,15 +204,15 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 
 	// Without a cursor the watcher first emits currently open tasks only.
 	watch := startWatch("--cursor-file", cursorFile)
-	if got := watch.next(t); !strings.HasPrefix(got, "cursor=1 change=created task="+backlogTask+" version=1 state=open source=local channel= thread= parent= text=already open") {
+	if got := watch.next(t); !strings.HasPrefix(got, "cursor=1 change=created task="+backlogTask+" version=1 state=open source=local channel= thread= parent= key= url= text=already open") {
 		t.Fatalf("backlog line=%q", got)
 	}
 	multiline := createTask("line one\n\tline two \\ end\n")
-	if got, want := watch.next(t), "cursor=4 change=created task="+multiline+" version=1 state=open source=local channel= thread= parent= text=line one\\n\\tline two \\\\ end\\n"; got != want {
+	if got, want := watch.next(t), "cursor=4 change=created task="+multiline+" version=1 state=open source=local channel= thread= parent= key= url= text=line one\\n\\tline two \\\\ end\\n"; got != want {
 		t.Fatalf("multiline line=%q want %q", got, want)
 	}
 	run("task", "update", backlogTask, "--text", "already open, edited", "--json")
-	if got, want := watch.next(t), "cursor=5 change=edited task="+backlogTask+" version=2 state=open source=local channel= thread= parent= text=already open, edited"; got != want {
+	if got, want := watch.next(t), "cursor=5 change=edited task="+backlogTask+" version=2 state=open source=local channel= thread= parent= key= url= text=already open, edited"; got != want {
 		t.Fatalf("edit line=%q want %q", got, want)
 	}
 	// State changes away from open are filtered by default but still advance
@@ -260,6 +260,36 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 		t.Fatalf("json state line=%q", line)
 	}
 	jsonWatch.stop(t)
+
+	// A named source labels the task on the watch line; a repeated key returns
+	// the existing task with changed=false and emits nothing new.
+	createFromSource := func(text string) protocol.TaskMutationDTO {
+		t.Helper()
+		var created struct {
+			Result protocol.TaskMutationDTO `json:"result"`
+		}
+		output := run("task", "create", "--text", text, "--source", "tickets", "--key", "tickets:378:comment-991", "--url", "https://example.com/tickets/378", "--json")
+		if err := json.Unmarshal(output, &created); err != nil || created.Result.TaskID == "" {
+			t.Fatalf("task create --source: %v %s", err, output)
+		}
+		return created.Result
+	}
+	sourceWatch := startWatch("--since", "9")
+	first := createFromSource("Comment on ticket 378")
+	if !first.Changed {
+		t.Fatalf("first source create = %#v", first)
+	}
+	if got, want := sourceWatch.next(t), "cursor=10 change=created task="+first.TaskID+" version=1 state=open source=tickets channel= thread= parent= key=tickets:378:comment-991 url=https://example.com/tickets/378 text=Comment on ticket 378"; got != want {
+		t.Fatalf("source line=%q want %q", got, want)
+	}
+	if again := createFromSource("Comment on ticket 378, polled again"); again.Changed || again.TaskID != first.TaskID || again.Version != 1 {
+		t.Fatalf("duplicate source create = %#v", again)
+	}
+	sourceWatch.quiet(t, 500*time.Millisecond)
+	sourceWatch.stop(t)
+	if shown := string(run("task", "show", first.TaskID)); !strings.Contains(shown, "open  tickets  v1") || !strings.Contains(shown, "key tickets:378:comment-991  https://example.com/tickets/378") {
+		t.Fatalf("task show = %q", shown)
+	}
 
 	// --no-backlog starts at the current head; a cursor from another ledger is refused.
 	fresh := startWatch("--no-backlog")

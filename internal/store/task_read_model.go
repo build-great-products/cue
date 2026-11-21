@@ -63,8 +63,8 @@ func (s *Store) GetTaskReadModel(ctx context.Context, selector string) (TaskRead
 		return TaskReadModel{}, ErrNotFound
 	}
 	rows, err := s.db.QueryContext(ctx, `SELECT t.task_id,t.version,t.state,t.text,t.source_kind,t.created_at,t.updated_at,t.done_at,
-		s.initial_source_event_id,s.team_id,s.channel_id,s.author_user_id,s.message_ts,s.thread_ts,s.permalink,s.latest_event_at_us,s.source_deleted_at_us,s.created_at_us,s.updated_at_us,s.parent_task_id
-		FROM tasks t LEFT JOIN slack_task_sources s ON s.task_id=t.task_id
+		s.initial_source_event_id,s.team_id,s.channel_id,s.author_user_id,s.message_ts,s.thread_ts,s.permalink,s.latest_event_at_us,s.source_deleted_at_us,s.created_at_us,s.updated_at_us,s.parent_task_id,`+taskSourceColumns+`
+		FROM tasks t LEFT JOIN slack_task_sources s ON s.task_id=t.task_id LEFT JOIN task_sources x ON x.task_id=t.task_id
 		WHERE t.task_id=? OR substr(t.task_id,1,length(?))=?
 		ORDER BY t.task_id LIMIT 2`, canonical, canonical, canonical)
 	if err != nil {
@@ -125,10 +125,16 @@ func scanTaskReadModel(row rowsScanner) (TaskReadModel, error) {
 	var done sql.NullInt64
 	var initialEvent, teamID, channelID, authorUserID, messageTS, threadTS, permalink, parentTaskID sql.NullString
 	var latestEvent, deletedAt, sourceCreated, sourceUpdated sql.NullInt64
+	var sourceName, sourceKey, sourceURL sql.NullString
 	var created, updated int64
 	if err := row.Scan(&model.Task.ID, &model.Task.Version, &model.Task.State, &model.Task.Text, &model.Task.SourceKind, &created, &updated, &done,
-		&initialEvent, &teamID, &channelID, &authorUserID, &messageTS, &threadTS, &permalink, &latestEvent, &deletedAt, &sourceCreated, &sourceUpdated, &parentTaskID); err != nil {
+		&initialEvent, &teamID, &channelID, &authorUserID, &messageTS, &threadTS, &permalink, &latestEvent, &deletedAt, &sourceCreated, &sourceUpdated, &parentTaskID,
+		&sourceName, &sourceKey, &sourceURL); err != nil {
 		return TaskReadModel{}, err
+	}
+	model.Task.Source = taskSourceFrom(sourceName, sourceKey, sourceURL)
+	if model.Task.Source != nil && (model.Task.SourceKind != "local" || initialEvent.Valid) {
+		return TaskReadModel{}, ErrSlackInvariant
 	}
 	model.Task.CreatedAt = time.UnixMicro(created).UTC()
 	model.Task.UpdatedAt = time.UnixMicro(updated).UTC()

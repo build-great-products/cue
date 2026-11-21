@@ -116,6 +116,56 @@ func TestGatewayRequestConstructionCharacterization(t *testing.T) {
 	}
 }
 
+// TestTaskCreateFromSourceRequestsAndCapability locks the named-source
+// request shape and proves the CLI refuses a gateway without task_sources_v1
+// instead of sending fields an older gateway would reject.
+func TestTaskCreateFromSourceRequestsAndCapability(t *testing.T) {
+	endpoint := characterizationEndpoint(t)
+	args := []string{"task", "create", "--text", "ticket comment", "--source", "tickets", "--key", "tickets:378:comment-991", "--url", "https://example.com/tickets/378", "--request-id", "req_source_create", "--json"}
+	t.Run("current gateway", func(t *testing.T) {
+		requests := serveCharacterizationGatewayWith(t, endpoint, []string{protocol.CapabilityLocalTasks, protocol.CapabilityTaskSources})
+		var stdout, stderr bytes.Buffer
+		if exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), args); exit != ExitSuccess {
+			t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+		}
+		req := <-requests
+		var params protocol.TaskCreateParams
+		if err := json.Unmarshal(req.Params, &params); err != nil || req.Command != "task.create" || params != (protocol.TaskCreateParams{Text: "ticket comment", Source: "tickets", Key: "tickets:378:comment-991", URL: "https://example.com/tickets/378"}) {
+			t.Fatalf("request=%+v params=%#v err=%v", req, params, err)
+		}
+	})
+	t.Run("gateway without task_sources_v1", func(t *testing.T) {
+		_ = serveCharacterizationGatewayWith(t, endpoint, []string{protocol.CapabilityLocalTasks})
+		var stdout, stderr bytes.Buffer
+		if exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), args); exit != ExitUnsupported {
+			t.Fatalf("old gateway exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+		}
+	})
+}
+
+func TestTaskCreateSourceFlagsAreValidatedLocally(t *testing.T) {
+	root := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	for _, extra := range [][]string{
+		{"--key", "k"},
+		{"--url", "https://example.com"},
+		{"--source", "slack"},
+		{"--source", "local"},
+		{"--source", "Bad"},
+		{"--source", ""},
+		{"--source", "ok", "--key", "a b"},
+		{"--source", "ok", "--key", ""},
+		{"--source", "ok", "--url", "file:///etc/passwd"},
+	} {
+		var stdout, stderr bytes.Buffer
+		args := append([]string{"task", "create", "--text", "x"}, extra...)
+		if exit := (App{Out: &stdout, Err: &stderr}).Run(context.Background(), args); exit != ExitUsage {
+			t.Fatalf("Run(%q) exit=%d stderr=%q", args, exit, stderr.String())
+		}
+	}
+}
+
 func stringPointer(value string) *string { return &value }
 
 func characterizationEndpoint(t *testing.T) string {
@@ -146,6 +196,10 @@ func characterizationEndpoint(t *testing.T) string {
 }
 
 func serveCharacterizationGateway(t *testing.T, endpoint, capability string) <-chan protocol.Request {
+	return serveCharacterizationGatewayWith(t, endpoint, []string{capability})
+}
+
+func serveCharacterizationGatewayWith(t *testing.T, endpoint string, capabilities []string) <-chan protocol.Request {
 	t.Helper()
 	listener, err := net.Listen("unix", endpoint)
 	if err != nil {
@@ -172,7 +226,7 @@ func serveCharacterizationGateway(t *testing.T, endpoint, capability string) <-c
 			resultType, result := "characterization", []byte(`{}`)
 			if index == 0 {
 				resultType = "hello"
-				result, _ = json.Marshal(protocol.HelloResult{SelectedVersion: protocol.Version, Capabilities: []string{capability}})
+				result, _ = json.Marshal(protocol.HelloResult{SelectedVersion: protocol.Version, Capabilities: capabilities})
 			} else {
 				requests <- req
 			}

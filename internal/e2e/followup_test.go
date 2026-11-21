@@ -96,10 +96,10 @@ func TestUnmentionedThreadFollowUpsReachTheWatcher(t *testing.T) {
 
 	watch := startWatchProcess(t, h.binary, h.env, "--since", "0")
 	want := []string{
-		"task=" + rootID + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent= text=<@U012BOT> render the deck",
-		"task=" + otherID + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent=" + rootID + " text=also check staging",
-		"task=" + followID + " version=2 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent=" + rootID + " text=Perfect, ship it",
-		"task=" + ids[3] + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + botRootTS + " parent= text=Can you just put commented against all of them",
+		"task=" + rootID + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent= key= url= text=<@U012BOT> render the deck",
+		"task=" + otherID + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent=" + rootID + " key= url= text=also check staging",
+		"task=" + followID + " version=2 state=open source=slack channel=" + mainChannel + " thread=" + rootTS + " parent=" + rootID + " key= url= text=Perfect, ship it",
+		"task=" + ids[3] + " version=1 state=open source=slack channel=" + mainChannel + " thread=" + botRootTS + " parent= key= url= text=Can you just put commented against all of them",
 	}
 	for i := range want {
 		if got := watch.next(t); !strings.HasSuffix(got, want[i]) {

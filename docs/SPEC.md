@@ -13,7 +13,7 @@ Cue must provide:
 - one foreground Go gateway and short-lived CLI clients;
 - one Slack Socket Mode workspace connection that admits work from every channel the bot is a member of;
 - admission of direct bot mentions and tracked-thread replies from every human member of that workspace;
-- local and Slack-origin tasks with explicit state transitions;
+- local and Slack-origin tasks with explicit state transitions, and local tasks labelled by a named external source with durable key deduplication;
 - commit-before-ack Slack source deduplication;
 - a harness-neutral task event stream (`task watch`) with a durable resume cursor, which is the only way work reaches an agent;
 - explicit Slack reads, writes, reactions, and file operations;
@@ -32,7 +32,7 @@ The gateway is the only normal SQLite writer. CLI commands other than setup and 
 
 SQLite is authoritative for coordination state: tasks, source events, effects, files, and request outcomes. Slack is an external persistence domain and cannot share a transaction with SQLite.
 
-The gateway upgrades an intact older ledger atomically on open and refuses a newer or altered one. Upgrades are one-way. Schema version 8 drops the table of the removed Pi delivery feature without archiving it. Schema version 9 adds the nullable `parent_task_id` follow-up link to Slack task sources and thread lookup indexes; existing sources get no parent. Schema version 10 drops the `trusted_users` table of the removed trusted-user feature without archiving it.
+The gateway upgrades an intact older ledger atomically on open and refuses a newer or altered one. Upgrades are one-way. Schema version 8 drops the table of the removed Pi delivery feature without archiving it. Schema version 9 adds the nullable `parent_task_id` follow-up link to Slack task sources and thread lookup indexes; existing sources get no parent. Schema version 10 drops the `trusted_users` table of the removed trusted-user feature without archiving it. Schema version 11 adds the `task_sources` table for named task sources (section 4b); existing tasks get no named source.
 
 Every gateway mutation must carry a client-generated request ID. A replay with the same operation and canonical input must return the original typed outcome without repeating the mutation. Reuse for different input must fail as a conflict. Stored request outcomes must not become a hidden archive of task text or credentials.
 
@@ -59,7 +59,7 @@ On startup and `gateway reload`, the gateway must validate the complete candidat
 
 ## 4. Tasks and Slack admission
 
-A task has a unique opaque ID, positive monotonic content version, current text, `open`/`working`/`done` state, timestamps, and a local or Slack source. Previous text is not retained.
+A task has a unique opaque ID, positive monotonic content version, current text, `open`/`working`/`done` state, timestamps, and a local or Slack source. A local task may also carry a named source (section 4b). Previous text is not retained.
 
 Every task also carries a durable change sequence and the kind of its latest change (`created`, `edited`, or `state`). The ledger must assign each creation, content-version change, and state change the next value of one monotonic counter inside the writing transaction, so sequence order equals commit order. Sequence values are never reused, including after purge. No-op edits and same-state transitions must not advance the counter. Only the latest change of each task is retained; it is not an event history.
 
@@ -107,6 +107,23 @@ Admission prepares the `open` reaction before acknowledgement and submits it aft
 
 On startup the gateway re-prepares any missing lifecycle intent for the latest transition of each `open` or `working` Slack task before effect recovery runs, so a crash between a transition commit and its projection converges. `done` tasks are not reconciled at startup.
 
+## 4b. Named task sources
+
+A feeder is any program that turns events from another system into tasks. It creates them with `task create --source NAME`, optionally with `--key KEY` and `--url URL`:
+
+- `NAME` is 1 to 32 characters of `a-z`, `0-9`, and `-`. `local` and `slack` are reserved and must be rejected.
+- `KEY` is 1 to 256 bytes of printable ASCII without spaces (`!` to `~`). It identifies the external event, for example `tracker:item-12:comment-34`.
+- `URL` is an `http://` or `https://` link of at most 2048 bytes of printable ASCII without spaces, to the item the task came from.
+- `--key` and `--url` require `--source`. Invalid values fail locally with a usage error and are also refused by the gateway and by the ledger schema.
+
+The task is an ordinary local task (`source_kind` is `local`): it has no Slack source, is not replied to with `task reply`, and is finished with `task done`. Its named source is immutable provenance stored in `task_sources` and shown as the `source` object (`name`, `key`, `url`) in task DTOs, as the source name in human task cards, and on watch lines (section 5).
+
+**Deduplication by key.** At most one retained task has a given source name and key. When `task create` names a source and key that a retained task already has, in any state, the gateway must create nothing and change nothing, and must return that task's mutation result with `changed: false`; the new text and URL are ignored. A create that makes a new task returns `changed: true`. Keys are scoped to their source name. Without a key every create makes a new task. The key is released only when metadata purge removes its task (section 8), after which the same key creates a new task.
+
+Request IDs keep their general meaning (section 2) and are not a substitute for keys: a request ID is one attempt of one exact input, its record expires, and its replay reports the original outcome. A feeder should therefore give every create a fresh request ID (the CLI generates one when omitted) and rely on the key for deduplication across runs and restarts.
+
+The `task_sources_v1` capability advertises this feature. A client must see it before sending `source`, `key`, or `url`, and otherwise fail with the unsupported category (exit 9).
+
 ## 5. Task watch
 
 `task watch` is a read-only, long-running client of the `task_changes_v1` capability. It must poll the gateway over the private local protocol and write each selected task change to stdout as exactly one complete line, flushed per line, until interrupted. Stdout must contain only events. Reconnect and other diagnostics go to stderr.
@@ -116,10 +133,10 @@ Each event is the task's current snapshot at its latest change sequence. Changes
 The default line is:
 
 ```text
-cursor=SEQ change=created|edited|state task=TASK_ID version=N state=open|working|done source=local|slack channel=CHANNEL_ID thread=THREAD_TS parent=TASK_ID text=ESCAPED
+cursor=SEQ change=created|edited|state task=TASK_ID version=N state=open|working|done source=local|slack|NAME channel=CHANNEL_ID thread=THREAD_TS parent=TASK_ID key=KEY url=URL text=ESCAPED
 ```
 
-`channel` and `thread` are the Slack channel and reply thread root of a Slack task and are empty for a local task. `parent` is the source's `parent_task_id`, empty when absent. `text` is the last field and is never truncated. It escapes backslash as `\\`, newline as `\n`, carriage return as `\r`, tab as `\t`, and every other control character and U+2028/U+2029 as `\uXXXX`; other printable Unicode is retained. With `--json`, each line is one `TaskChangeDTO` object (`change_seq`, `change`, and a `task` with the `TaskDTO` shape including `slack_source` for Slack tasks), and the cursor is `change_seq`.
+`source` is the task's named source when it has one (section 4b), else `local` or `slack`. `channel` and `thread` are the Slack channel and reply thread root of a Slack task and are empty otherwise. `parent` is the source's `parent_task_id`, empty when absent. `key` and `url` are the named source's key and URL, empty when absent; they are printable ASCII without spaces, so they need no escaping. `text` is the last field and is never truncated. It escapes backslash as `\\`, newline as `\n`, carriage return as `\r`, tab as `\t`, and every other control character and U+2028/U+2029 as `\uXXXX`; other printable Unicode is retained. With `--json`, each line is one `TaskChangeDTO` object (`change_seq`, `change`, and a `task` with the `TaskDTO` shape including `slack_source` for Slack tasks), and the cursor is `change_seq`.
 
 By default a live event is emitted when a task is created, when its content version changes, or when it enters `open`. `--state-changes` also emits transitions to `working` and `done`. Filtered changes still advance the cursor.
 
@@ -161,7 +178,7 @@ Temporary files must use generated owner-only paths under the state root. Expire
 
 ## 8. Purge and diagnostics
 
-Purge requires an absolute RFC 3339 cutoff and exactly one of `--dry-run` or `--confirm`. Dry-run must not mutate state. Confirmed purge may remove eligible finalized history but must preserve open/working tasks, unresolved effects, live request outcomes, configuration, and every record required by retained state.
+Purge requires an absolute RFC 3339 cutoff and exactly one of `--dry-run` or `--confirm`. Dry-run must not mutate state. Confirmed purge may remove eligible finalized history but must preserve open/working tasks, unresolved effects, live request outcomes, configuration, and every record required by retained state. Removing a task removes its named source row with it, counted with the task, which releases its key.
 
 `gateway status` must distinguish process health from outcomes requiring operator action and report bounded task, Slack, effect, database, and temporary-file state. `doctor` must be non-destructive: it must not send Slack messages, acknowledge events, or transfer bytes.
 
@@ -193,7 +210,7 @@ Cobra help is the complete command-discovery interface. Running the root or a co
 
 `task context TASK [--thread-limit N]` is a read-only bounded task workflow view. It includes the current durable task/source attachment metadata, latest reply effect, and at most ten newest non-confirmed related effects and their total. For Slack tasks it makes one best-effort live thread-page read (default 20, maximum 100); `thread.status` is `available`, `unavailable`, or `not_applicable`. An unavailable live thread is a successful partial result with a warning; missing tasks remain not-found. It never downloads files or returns live-reply file metadata, file bytes, private URLs, effect body text, or operator reasons.
 
-`task create`, `task update`, `task reply`, `slack send`, and `slack edit` require exactly one text source: `--text`, `--text-file`, or `--stdin`. `--text` is exact literal text and must not decode escapes: a supplied `\\n` is a backslash followed by `n`. `--text-file` and explicit stdin preserve exact multiline UTF-8 bodies; stdin reads its complete bounded body (including trailing newlines) before gateway interaction. Empty, NUL-containing, malformed UTF-8, and over-limit bodies fail locally. This body stdin is independent from `config secret set --stdin` credential input.
+`task create` also accepts `--source NAME`, `--key KEY`, and `--url URL` (section 4b). `task create`, `task update`, `task reply`, `slack send`, and `slack edit` require exactly one text source: `--text`, `--text-file`, or `--stdin`. `--text` is exact literal text and must not decode escapes: a supplied `\\n` is a backslash followed by `n`. `--text-file` and explicit stdin preserve exact multiline UTF-8 bodies; stdin reads its complete bounded body (including trailing newlines) before gateway interaction. Empty, NUL-containing, malformed UTF-8, and over-limit bodies fail locally. This body stdin is independent from `config secret set --stdin` credential input.
 
 For every syntactically valid leaf invocation other than `task watch` whose parsed `--json` flag is true, success and runtime failure write exactly one JSON object followed by one newline to stdout and nothing to stderr. Successful objects retain each command's existing DTO shape. Runtime failures use a shared error object with `code`, `category`, `message`, `retriable`, and optional safe `details`, `progress`, `request_id`, and guidance; doctor gateway failures additionally contain only the completed diagnostic report in `partial_result`. Parse and usage failures remain text on stderr with exit 2.
 

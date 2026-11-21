@@ -41,3 +41,56 @@ func NormalizeText(text string) (string, error) {
 	}
 	return text, nil
 }
+
+// Named task sources. A feeder labels the tasks it creates with a source
+// name, may deduplicate them by an external key, and may link to the original
+// item. The names "local" and "slack" are reserved for the built-in sources.
+const (
+	MaxSourceNameLength  = 32
+	MaxExternalKeyLength = 256
+	MaxSourceURLLength   = 2048
+)
+
+// ValidSourceName reports whether name is 1 to 32 characters of a-z, 0-9,
+// and '-', and is not a reserved built-in source name.
+func ValidSourceName(name string) bool {
+	if len(name) < 1 || len(name) > MaxSourceNameLength || name == "local" || name == "slack" {
+		return false
+	}
+	for i := 0; i < len(name); i++ {
+		c := name[i]
+		if !(c >= 'a' && c <= 'z') && !(c >= '0' && c <= '9') && c != '-' {
+			return false
+		}
+	}
+	return true
+}
+
+// ValidExternalKey reports whether key is 1 to 256 bytes of printable ASCII
+// without spaces, so it fits on one task watch line unescaped.
+func ValidExternalKey(key string) bool {
+	return len(key) >= 1 && len(key) <= MaxExternalKeyLength && visibleASCII(key)
+}
+
+// ValidSourceURL reports whether link is an http or https URL of at most
+// 2048 bytes of printable ASCII without spaces.
+func ValidSourceURL(link string) bool {
+	if len(link) < 1 || len(link) > MaxSourceURLLength || !visibleASCII(link) {
+		return false
+	}
+	for _, prefix := range []string{"https://", "http://"} {
+		if len(link) > len(prefix) && link[:len(prefix)] == prefix {
+			return true
+		}
+	}
+	return false
+}
+
+func visibleASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] < '!' || s[i] > '~' {
+			return false
+		}
+	}
+	return true
+}

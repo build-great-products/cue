@@ -7,12 +7,16 @@ import (
 	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/identity"
 	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/task"
 )
+
+// taskOrigin carries task create's optional named source flags.
+type taskOrigin struct{ Source, Key, URL string }
 
 // taskTyped binds Cobra's already-parsed task leaves directly to protocol DTOs.
 // It retains the established task request IDs, text-file safety, and
 // mutation JSON envelope.
-func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done bool, requestID, cursor string, jsonOut bool) error {
+func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done bool, requestID, cursor string, jsonOut bool, origin taskOrigin) error {
 	mutation := command == "create" || command == "update" || command == "open" || command == "working" || command == "done" || command == "reply"
 	var params any
 
@@ -22,7 +26,19 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if err != nil {
 			return err
 		}
-		params = protocol.TaskCreateParams{Text: body}
+		if origin.Source == "" && (origin.Key != "" || origin.URL != "") {
+			return usage("--key and --url require --source")
+		}
+		if origin.Source != "" && !task.ValidSourceName(origin.Source) {
+			return usage("--source must be 1 to 32 characters of a-z, 0-9, and '-', and not local or slack")
+		}
+		if origin.Key != "" && !task.ValidExternalKey(origin.Key) {
+			return usage("--key must be 1 to 256 printable ASCII characters without spaces")
+		}
+		if origin.URL != "" && !task.ValidSourceURL(origin.URL) {
+			return usage("--url must be an http or https URL of at most 2048 printable ASCII characters without spaces")
+		}
+		params = protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL}
 	case "update":
 		body, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
 		if err != nil {
@@ -78,11 +94,14 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 	if err := checkTaskFrame(c, command, requestID, params, textFileSet, stdin, a.Version); err != nil {
 		return err
 	}
-	capability := protocol.CapabilityLocalTasks
+	capabilities := []string{protocol.CapabilityLocalTasks}
 	if command == "reply" {
-		capability = protocol.CapabilityTaskReply
+		capabilities = []string{protocol.CapabilityTaskReply}
 	}
-	out, err := a.gatewayCall(c, taskProtocolCommand(command), requestID, params, capability)
+	if origin.Source != "" {
+		capabilities = append(capabilities, protocol.CapabilityTaskSources)
+	}
+	out, err := a.gatewayCall(c, taskProtocolCommand(command), requestID, params, capabilities...)
 	if err != nil {
 		return mutationJSONError(err, mutation, jsonOut, requestID)
 	}

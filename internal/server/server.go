@@ -564,7 +564,7 @@ func (s *Server) dispatchConnection(ctx context.Context, r protocol.Request, con
 		var p protocol.TaskCreateParams
 		_ = json.Unmarshal(r.Params, &p)
 		resultType = "task_mutation"
-		result, err = s.store.Create(ctx, r.RequestID, p.Text)
+		result, err = s.store.CreateFromSource(ctx, r.RequestID, p.Text, store.TaskSource{Name: p.Source, Key: p.Key, URL: p.URL})
 	case "task.get":
 		var p protocol.TaskSelector
 		_ = json.Unmarshal(r.Params, &p)
@@ -1216,7 +1216,11 @@ func taskDTO(t store.Task) protocol.TaskDTO {
 		d := stamp(*t.DoneAt)
 		done = &d
 	}
-	return protocol.TaskDTO{TaskID: t.ID, Version: t.Version, State: string(t.State), Text: t.Text, SourceKind: t.SourceKind, CreatedAt: stamp(t.CreatedAt), UpdatedAt: stamp(t.UpdatedAt), DoneAt: done}
+	out := protocol.TaskDTO{TaskID: t.ID, Version: t.Version, State: string(t.State), Text: t.Text, SourceKind: t.SourceKind, CreatedAt: stamp(t.CreatedAt), UpdatedAt: stamp(t.UpdatedAt), DoneAt: done}
+	if t.Source != nil {
+		out.Source = &protocol.TaskSourceDTO{Name: t.Source.Name, Key: t.Source.Key, URL: t.Source.URL}
+	}
+	return out
 }
 func taskChangesDTO(changes []store.TaskChange, after, head int64) protocol.TaskChangesDTO {
 	out := protocol.TaskChangesDTO{Changes: make([]protocol.TaskChangeDTO, len(changes)), NextAfter: after, Head: head}

@@ -312,11 +312,17 @@ func writeTaskWatchLine(out io.Writer, change protocol.TaskChangeDTO, jsonOut bo
 		line = append(b, '\n')
 	} else {
 		t := change.Task
-		var channel, thread, parent string
+		var channel, thread, parent, key, link string
+		source := t.SourceKind
 		if t.SlackSource != nil {
 			channel, thread, parent = t.SlackSource.ChannelID, t.SlackSource.ThreadTS, t.SlackSource.ParentTaskID
 		}
-		line = fmt.Appendf(nil, "cursor=%d change=%s task=%s version=%d state=%s source=%s channel=%s thread=%s parent=%s text=%s\n", change.ChangeSeq, change.Change, t.TaskID, t.Version, t.State, t.SourceKind, channel, thread, parent, escapeTaskWatchText(t.Text))
+		if t.Source != nil {
+			// A named source replaces "local". Key and URL are validated
+			// visible ASCII; escaping keeps one event on one line regardless.
+			source, key, link = t.Source.Name, escapeTaskWatchText(t.Source.Key), escapeTaskWatchText(t.Source.URL)
+		}
+		line = fmt.Appendf(nil, "cursor=%d change=%s task=%s version=%d state=%s source=%s channel=%s thread=%s parent=%s key=%s url=%s text=%s\n", change.ChangeSeq, change.Change, t.TaskID, t.Version, t.State, escapeTaskWatchText(source), channel, thread, parent, key, link, escapeTaskWatchText(t.Text))
 	}
 	_, err := out.Write(line)
 	return err

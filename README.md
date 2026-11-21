@@ -24,6 +24,7 @@ The current v1 workflow includes:
 
 - single-workspace Slack Socket Mode admission from every channel the bot is a member of, for every member of that workspace;
 - local and Slack-origin tasks with `open`, `working`, and `done` states;
+- tasks from other systems, labelled with a source name and deduplicated by an external key (see [Feeding tasks from other systems](#feeding-tasks-from-other-systems));
 - `task watch`, a one-line-per-event task stream with a durable resume cursor;
 - explicit Slack reads, replies, edits, deletes, reactions, and file uploads;
 - Slack lifecycle reactions that mirror task state;
@@ -54,7 +55,7 @@ Start the gateway in the foreground:
 
 Upgrading from Mosscap (the project's previous name): stop the gateway, move `~/.config/mosscap` to `~/.config/cue` and `~/.local/state/mosscap` to `~/.local/state/cue` (or the same names under your `XDG_CONFIG_HOME` and `XDG_STATE_HOME`), rename `mosscap.sqlite3` in the state directory to `cue.sqlite3`, rename `MOSSCAP_SLACK_*_TOKEN` environment variables to `CUE_SLACK_*_TOKEN`, then start `cue gateway run`. The ledger needs no migration. Temporary download files keep the `mosscap-xfr-` prefix because the ledger schema checks it.
 
-Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled.
+Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled. Schema migration 11 adds the `task_sources` table for [named task sources](#feeding-tasks-from-other-systems); it is additive and also one-way, so an older binary refuses the upgraded ledger.
 
 ## Admission and tasks
 
@@ -114,13 +115,16 @@ Default output is compact human-readable cards, rows, and labelled details; use 
 `cue task watch` is how an agent receives work. It stays connected to the gateway and prints one line per task event on stdout until interrupted:
 
 ```text
-cursor=7 change=created task=AbCdEfGhIjKlMnOpQrStUv version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent= text=<@U012BOT> review the release\nthanks
-cursor=9 change=created task=ZyXwVuTsRqPoNmLkJiHgFe version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent=AbCdEfGhIjKlMnOpQrStUv text=Perfect
+cursor=7 change=created task=AbCdEfGhIjKlMnOpQrStUv version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent= key= url= text=<@U012BOT> review the release\nthanks
+cursor=9 change=created task=ZyXwVuTsRqPoNmLkJiHgFe version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent=AbCdEfGhIjKlMnOpQrStUv key= url= text=Perfect
+cursor=12 change=created task=QwErTyUiOpAsDfGhJkLzXc version=1 state=open source=tracker channel= thread= parent= key=tracker:item-12:comment-34 url=https://tracker.example.com/items/12 text=New comment on item 12
 ```
 
 - `change` is `created`, `edited` (content version changed, for example a Slack edit), or `state` (the task re-entered `open`).
-- `channel` is the task's Slack channel ID and `thread` its reply thread (the root message timestamp); both are empty for local tasks.
+- `source` is `slack`, `local`, or the name a feeder gave with `--source`.
+- `channel` is the task's Slack channel ID and `thread` its reply thread (the root message timestamp); both are empty for other tasks.
 - `parent` is set on a thread follow-up and names the thread's original task; it is empty otherwise.
+- `key` and `url` are a feeder's `--key` and `--url`, empty when absent.
 - `text` is the last field, never truncated, with backslash, newlines, tabs, and other control characters escaped so one event is always one line.
 - `--json` prints one JSON object per line instead: `{"change_seq":7,"change":"created","task":{...}}`, where `task` is the same DTO as `task show --json`.
 - `--state-changes` also reports transitions to `working` and `done`.
@@ -146,6 +150,28 @@ cue task context AbCdEfGhIjKlMnOpQrStUv
 cue task reply AbCdEfGhIjKlMnOpQrStUv --stdin --done <<'REPLY'
 Done: the release checklist passes.
 REPLY
+```
+
+## Feeding tasks from other systems
+
+A feeder is a small program that watches some other system (an issue tracker, a CI server, a mailbox) and turns each new event into a task, so the agent follows one `task watch` stream for everything. Feeders use `task create` with a source name and an external key:
+
+```sh
+cue task create --source tracker --key tracker:item-12:comment-34 \
+  --url https://tracker.example.com/items/12 --text "New comment on item 12" --json
+```
+
+- `--source NAME` labels the task: 1 to 32 characters of `a-z`, `0-9`, and `-`; `local` and `slack` are reserved. It appears as `source=NAME` on watch lines, in `task list` and `task show`, and as `"source": {"name", "key", "url"}` in `--json`.
+- `--key KEY` makes re-running a feeder safe. If a task with the same source and key already exists, in any state, nothing is created or changed and the existing task comes back with `"changed": false`. A new task has `"changed": true`. Choose a key that identifies the event, not its content: an ID from the other system, never a timestamp of when the feeder ran. Keys are 1 to 256 printable ASCII characters without spaces, and are scoped to their source.
+- `--url URL` is an `http(s)` link to the original item, shown with the task.
+
+Do not use `--request-id` for this. A request ID is for retrying one interrupted command with exactly the same input: reusing it with different text fails as a conflict, a replay cannot tell you whether the task already existed, and its record expires after 30 days. Let the CLI generate a fresh request ID for every create and rely on `--key`.
+
+Named-source tasks are local tasks: finish them with `task done`, not `task reply`. A key is released only if `purge` removes its task.
+
+```sh
+out=$(cue task create --source tracker --key "$key" --url "$url" --text "$text" --json)
+if [ "$(printf '%s' "$out" | jq -r .result.changed)" = true ]; then echo "new task"; fi
 ```
 
 ## Slack commands and channels

@@ -130,11 +130,26 @@ func renderTaskContext(out *bytes.Buffer, context map[string]any) {
 }
 
 func renderTaskCard(out *bytes.Buffer, task map[string]any) {
-	fmt.Fprintf(out, "%s  %s  %s  v%v", present(task["task_id"]), present(task["state"]), present(task["source_kind"]), task["version"])
+	origin, _ := task["source"].(map[string]any)
+	sourceName := present(task["source_kind"])
+	if origin != nil {
+		sourceName = present(origin["name"])
+	}
+	fmt.Fprintf(out, "%s  %s  %s  v%v", present(task["task_id"]), present(task["state"]), sourceName, task["version"])
 	if updated := present(task["updated_at"]); updated != "" {
 		fmt.Fprintf(out, "  updated %s", updated)
 	}
 	fmt.Fprintln(out)
+	if origin != nil && (present(origin["key"]) != "" || present(origin["url"]) != "") {
+		parts := []string{}
+		if key := present(origin["key"]); key != "" {
+			parts = append(parts, "key "+key)
+		}
+		if link := present(origin["url"]); link != "" {
+			parts = append(parts, link)
+		}
+		fmt.Fprintln(out, strings.Join(parts, "  "))
+	}
 	if source, ok := task["slack_source"].(map[string]any); ok {
 		fmt.Fprintf(out, "Slack %s  thread %s", present(source["channel_id"]), present(source["thread_ts"]))
 		if parent := present(source["parent_task_id"]); parent != "" {

@@ -18,6 +18,7 @@ import (
 
 	"github.com/build-great-products/cue/internal/identity"
 	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 const Version = 1
@@ -42,9 +43,12 @@ const (
 	// CapabilitySlackChannels means Slack commands accept an explicit channel
 	// and admission covers every channel the bot is a member of.
 	CapabilitySlackChannels = "slack_channels_v1"
+	// CapabilityTaskSources means task.create accepts a named source, an
+	// external deduplication key, and a URL, and task DTOs carry them.
+	CapabilityTaskSources = "task_sources_v1"
 )
 
-var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels}
+var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources}
 
 var (
 	ErrEmptyFrame    = errors.New("protocol: empty frame")
@@ -135,8 +139,16 @@ type PurgeProgressDTO struct {
 type TaskSelector struct {
 	Task string `json:"task"`
 }
+
+// TaskCreateParams creates a local task. Source optionally names the feeder
+// that created it (requires task_sources_v1); Key and URL require Source.
+// With a Key, a task that already has the same Source and Key is returned
+// unchanged (changed=false) instead of creating another.
 type TaskCreateParams struct {
-	Text string `json:"text"`
+	Text   string `json:"text"`
+	Source string `json:"source,omitempty"`
+	Key    string `json:"key,omitempty"`
+	URL    string `json:"url,omitempty"`
 }
 type TaskUpdateParams struct {
 	Task string `json:"task"`
@@ -298,9 +310,18 @@ type TaskDTO struct {
 	CreatedAt    string               `json:"created_at"`
 	UpdatedAt    string               `json:"updated_at"`
 	DoneAt       *string              `json:"done_at"`
+	Source       *TaskSourceDTO       `json:"source,omitempty"`
 	SlackSource  *SlackSourceDTO      `json:"slack_source,omitempty"`
 	Files        []SlackFileDTO       `json:"files,omitempty"`
 	SlackActions *SlackTaskActionsDTO `json:"slack_actions,omitempty"`
+}
+
+// TaskSourceDTO names the feeder that created a local task, with its
+// optional external deduplication key and link.
+type TaskSourceDTO struct {
+	Name string `json:"name"`
+	Key  string `json:"key,omitempty"`
+	URL  string `json:"url,omitempty"`
 }
 
 // SlackTaskActionsDTO is the durable recovery state for a Slack-origin task.
@@ -636,6 +657,9 @@ func ValidateParams(command string, raw json.RawMessage) error {
 	case *TaskCreateParams:
 		if p.Text == "" {
 			return errors.New("missing task text")
+		}
+		if (p.Source != "" && !task.ValidSourceName(p.Source)) || (p.Source == "" && (p.Key != "" || p.URL != "")) || (p.Key != "" && !task.ValidExternalKey(p.Key)) || (p.URL != "" && !task.ValidSourceURL(p.URL)) {
+			return errors.New("invalid task source")
 		}
 	case *TaskSelector:
 		if !validTaskSelector(p.Task) {

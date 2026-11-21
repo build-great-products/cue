@@ -358,6 +358,11 @@ func deleteTaskGraph(ctx context.Context, q purgeConn, taskID string, out *Purge
 	} else {
 		out.Removed.Files += n
 	}
+	// A named-source row is provenance of the task itself and is counted
+	// with it; removing it releases the task's external key.
+	if _, err := deleteCount(ctx, q, "DELETE FROM task_sources WHERE task_id=?", taskID); err != nil {
+		return err
+	}
 	if n, err := deleteCount(ctx, q, "DELETE FROM slack_task_sources WHERE task_id=?", taskID); err != nil {
 		return err
 	} else {
