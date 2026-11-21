@@ -66,6 +66,13 @@ func steps(groups ...[]fake.Step) []fake.Step {
 // are released only after the gateway answers on its local endpoint.
 func newSlackHarness(t *testing.T, settings map[string]string, receives []fake.ReceiveStep, script []fake.Step) *slackHarness {
 	t.Helper()
+	return newSlackHarnessWith(t, settings, "", receives, script)
+}
+
+// newSlackHarnessWith also appends extraTOML (tables such as reply_adapters
+// and event_hooks) to the config before the gateway loads it.
+func newSlackHarnessWith(t *testing.T, settings map[string]string, extraTOML string, receives []fake.ReceiveStep, script []fake.Step) *slackHarness {
+	t.Helper()
 	home := effectiveHome(t)
 	root, err := os.MkdirTemp(home, ".cue-harness-")
 	if err != nil {
@@ -91,6 +98,19 @@ func newSlackHarness(t *testing.T, settings map[string]string, receives []fake.R
 	}
 	for key, value := range settings {
 		if _, err := config.Set(loc, key, value); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if extraTOML != "" {
+		f, err := os.OpenFile(loc.Path, os.O_APPEND|os.O_WRONLY, 0)
+		if err != nil {
+			t.Fatal(err)
+		}
+		_, err = f.WriteString("\n" + extraTOML)
+		if closeErr := f.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
 			t.Fatal(err)
 		}
 	}

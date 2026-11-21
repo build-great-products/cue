@@ -31,7 +31,9 @@
       "bot_events": [
         "app_mention",
         "message.channels",
-        "message.groups"
+        "message.groups",
+        "reaction_added",
+        "reaction_removed"
       ]
     },
     "socket_mode_enabled": true,

@@ -12,11 +12,20 @@ const (
 	EventMessage       EventKind = "message"
 	EventMessageChange EventKind = "message_changed"
 	EventMessageDelete EventKind = "message_deleted"
+	// Reactions on messages are never admitted as work. The gateway reports
+	// them to event hooks and acknowledges them without a ledger record.
+	EventReactionAdded   EventKind = "reaction_added"
+	EventReactionRemoved EventKind = "reaction_removed"
 )
 
 // Valid reports whether k is a supported normalized event kind.
 func (k EventKind) Valid() bool {
-	return k == EventAppMention || k == EventMessage || k == EventMessageChange || k == EventMessageDelete
+	return k == EventAppMention || k == EventMessage || k == EventMessageChange || k == EventMessageDelete || k.Reaction()
+}
+
+// Reaction reports whether k is a reaction event, which only event hooks see.
+func (k EventKind) Reaction() bool {
+	return k == EventReactionAdded || k == EventReactionRemoved
 }
 
 // Envelope is the bounded, SDK-free representation emitted by Socket Mode.
@@ -42,7 +51,12 @@ type Envelope struct {
 	Permalink  string             `json:"permalink,omitempty"`
 	Files      []File             `json:"files,omitempty"`
 	Forwarded  []ForwardedMessage `json:"forwarded_messages,omitempty"`
-	Ack        *Acknowledgement   `json:"-"`
+	// Reaction is the emoji name of a reaction event, for example "+1" or
+	// "wave::skin-tone-3". For a reaction, MessageTS is the reacted message,
+	// UserID the person who reacted, and ThreadTS is empty (Slack does not
+	// say which thread the message is in).
+	Reaction string           `json:"reaction,omitempty"`
+	Ack      *Acknowledgement `json:"-"`
 }
 
 // ThreadIdentity returns ThreadTS when present and MessageTS otherwise.

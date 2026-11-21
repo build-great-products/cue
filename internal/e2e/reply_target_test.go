@@ -44,7 +44,7 @@ func TestFeederTaskRepliesIntoItsSlackThread(t *testing.T) {
 	}
 
 	watch := startWatchProcess(t, h.binary, h.env, "--since", "0")
-	if got, want := watch.next(t), "source=tickets channel= thread= parent= key=tickets:378:comment-992 url=https://example.com/tickets/378 reply="+channel+":"+thread+" text=Comment on ticket 378"; !strings.Contains(got, "task="+first.TaskID+" ") || !strings.HasSuffix(got, want) {
+	if got, want := watch.next(t), "source=tickets channel= thread= parent= key=tickets:378:comment-992 url=https://example.com/tickets/378 reply="+channel+":"+thread+" via= text=Comment on ticket 378"; !strings.Contains(got, "task="+first.TaskID+" ") || !strings.HasSuffix(got, want) {
 		t.Fatalf("watch line=%q want suffix %q", got, want)
 	}
 	watch.stop(t)

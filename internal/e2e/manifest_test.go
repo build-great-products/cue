@@ -11,7 +11,8 @@ import (
 
 // TestManifestGrantsEveryVerifiedScopeAndChannelEvent keeps manifest.json in
 // step with gateway verification: every required bot scope, and message
-// events for both public and private channels.
+// events for both public and private channels, and the reaction events
+// event hooks report.
 func TestManifestGrantsEveryVerifiedScopeAndChannelEvent(t *testing.T) {
 	b, err := os.ReadFile(filepath.Join(sourceRoot(t), "manifest.json"))
 	if err != nil {
@@ -45,7 +46,7 @@ func TestManifestGrantsEveryVerifiedScopeAndChannelEvent(t *testing.T) {
 	for _, event := range manifest.Settings.Events.Bot {
 		events[event] = true
 	}
-	for _, event := range []string{"app_mention", "message.channels", "message.groups"} {
+	for _, event := range []string{"app_mention", "message.channels", "message.groups", "reaction_added", "reaction_removed"} {
 		if !events[event] {
 			t.Errorf("manifest lacks event %s", event)
 		}

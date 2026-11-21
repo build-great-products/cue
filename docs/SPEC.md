@@ -13,10 +13,11 @@ Cue must provide:
 - one foreground Go gateway and short-lived CLI clients;
 - one Slack Socket Mode workspace connection that admits work from every channel the bot is a member of;
 - admission of direct bot mentions and tracked-thread replies from every human member of that workspace;
-- local and Slack-origin tasks with explicit state transitions, and local tasks labelled by a named external source with durable key deduplication and an optional Slack thread to reply in;
+- local and Slack-origin tasks with explicit state transitions, and local tasks labelled by a named external source with durable key deduplication and an optional Slack thread or reply adapter to reply through;
 - commit-before-ack Slack source deduplication;
 - a harness-neutral task event stream (`task watch`) with a durable resume cursor, which is the only way work reaches an agent;
 - explicit Slack reads, writes, reactions, and file operations;
+- configured reply adapters (commands that deliver task replies elsewhere) with durable, honest outcomes, and configured event hooks (commands told about Slack message and reaction events);
 - Slack lifecycle reactions that project task state;
 - durable Slack intents with honest uncertainty;
 - temporary, bounded file transfer without permanent byte storage;
@@ -32,7 +33,7 @@ The gateway is the only normal SQLite writer. CLI commands other than setup and 
 
 SQLite is authoritative for coordination state: tasks, source events, effects, files, and request outcomes. Slack is an external persistence domain and cannot share a transaction with SQLite.
 
-The gateway upgrades an intact older ledger atomically on open and refuses a newer or altered one. Upgrades are one-way. Schema version 8 drops the table of the removed Pi delivery feature without archiving it. Schema version 9 adds the nullable `parent_task_id` follow-up link to Slack task sources and thread lookup indexes; existing sources get no parent. Schema version 10 drops the `trusted_users` table of the removed trusted-user feature without archiving it. Schema version 11 adds the `task_sources` table for named task sources (section 4b); existing tasks get no named source. Schema version 12 adds the nullable Slack reply target columns `reply_channel_id` and `reply_thread_ts` to `task_sources`; existing sources get no reply target.
+The gateway upgrades an intact older ledger atomically on open and refuses a newer or altered one. Upgrades are one-way. Schema version 8 drops the table of the removed Pi delivery feature without archiving it. Schema version 9 adds the nullable `parent_task_id` follow-up link to Slack task sources and thread lookup indexes; existing sources get no parent. Schema version 10 drops the `trusted_users` table of the removed trusted-user feature without archiving it. Schema version 11 adds the `task_sources` table for named task sources (section 4b); existing tasks get no named source. Schema version 12 adds the nullable Slack reply target columns `reply_channel_id` and `reply_thread_ts` to `task_sources`; existing sources get no reply target. Schema version 13 adds the nullable `reply_adapter` column to `task_sources` (a source has at most one of a Slack reply target and a reply adapter) and the `reply_adapter_effects` table (section 6a); existing sources get no adapter.
 
 Every gateway mutation must carry a client-generated request ID. A replay with the same operation and canonical input must return the original typed outcome without repeating the mutation. Reuse for different input must fail as a conflict. Stored request outcomes must not become a hidden archive of task text or credentials.
 
@@ -50,6 +51,21 @@ $XDG_STATE_HOME/cue/tmp/
 Fallbacks are `~/.config` and `~/.local/state`. Configuration and state roots must be owner-only directories. Sensitive files must be owner-only regular files; unsafe ownership, modes, symlinks, hard links, or escaped state paths must fail closed.
 
 `config.toml` contains Slack app and bot tokens and all scalar limits/timeouts. It configures no channels and no users. Workspace/team and bot-user IDs are derived and verified through Slack authentication, not configured manually. Tokens must be set through the private config file, redacted from output, and excluded from SQLite, logs, and protocol results.
+
+`config.toml` may also define reply adapters and event hooks as tables keyed by a name of 1 to 32 characters of `a-z`, `0-9`, and `-`, at most 8 of each:
+
+```toml
+[reply_adapters.NAME]
+command = "/absolute/path"   # required
+timeout = "30s"              # optional Go duration, 1s to 5m, default 30s
+
+[event_hooks.NAME]
+command = "/absolute/path"   # required
+channels = ["C0123ABCD"]     # optional C/G channel IDs; empty or absent means every channel
+timeout = "10s"              # optional Go duration, 1s to 1m, default 10s
+```
+
+A `command` must be an absolute, clean path to a regular, singly linked file owned by the effective user, executable by its owner and not writable by group or others, and every directory above it must be symlink-free and not group- or world-writable. The file itself must not be a symlink. These checks run whenever the configuration is loaded for use (startup and `gateway reload`), so a command that fails them stops the gateway from starting and fails a reload, which keeps the prior configuration. Commands run with no shell and no arguments, with the gateway's environment, in their own process group; on timeout the whole group is killed. Their stdout is discarded; the start of their stderr (at most 2048 bytes) is logged when they fail, so a command must not write message text or credentials to stderr. Unknown keys inside these tables are rejected like any unknown key. `config set` does not edit them; edit `config.toml` and reload. `config show` and status show command paths, which are not secret.
 
 Keys of removed features must be rejected with guidance to remove them: `delivery_lease`, `leader_heartbeat`, and `leader_expiry` (Pi delivery), `slack_channel_id` and `slack_channel_allowlist` (channel restrictions), and `trusted_user_ids` (trusted users). The gateway must refuse to start, and a reload must fail, while any of them is present, and the error must name every unknown or obsolete key found, not only the first.
 
@@ -93,6 +109,8 @@ An admitted message creates at most one task. A meaningful newer source edit rep
 
 An edit of an admitted source whose sender is not the source's author is ignored and recorded with the result value `ignored_untrusted`; the name is retained from the removed trusted-user feature because the ledger fixes the set of result values. The result `ignored_channel` is no longer produced; it remains only on events recorded by releases that had a channel allowlist, so their redelivery replays it. No admission outcome other than a new task adds a reaction.
 
+**Reactions and other events.** `reaction_added` and `reaction_removed` events on messages are never admitted, never create, change, or relate to a task, and leave no ledger record: the gateway reports them to event hooks (section 4c) and acknowledges them. This deliberately departs from commit-before-ack, because there is nothing to commit; a redelivery is dropped by the hooks' bounded in-memory deduplication, best-effort. Reactions on anything but a message, and every event type other than `app_mention`, `message`, `reaction_added`, and `reaction_removed`, are acknowledged and dropped on receipt, with no record; they must not be treated as a socket failure.
+
 ## 4a. Lifecycle reactions
 
 A Slack-origin task's source message carries one lifecycle reaction that projects its current state:
@@ -115,17 +133,32 @@ A feeder is any program that turns events from another system into tasks. It cre
 - `KEY` is 1 to 256 bytes of printable ASCII without spaces (`!` to `~`). It identifies the external event, for example `tracker:item-12:comment-34`.
 - `URL` is an `http://` or `https://` link of at most 2048 bytes of printable ASCII without spaces, to the item the task came from.
 - `CHANNEL:THREAD_TS` is a Slack reply target: a `C...` or `G...` channel ID and the timestamp of the thread root to reply in (`SECONDS.MICROS`, at most 32 bytes), separated by one colon. It names no workspace; it always means the active one.
-- `--key`, `--url`, and `--reply-slack` require `--source`. Invalid values fail locally with a usage error and are also refused by the gateway and by the ledger schema.
+- `--reply-via NAME` names a reply adapter (section 6a) instead of a Slack thread, with the syntax of a source name. A task has `--reply-slack` or `--reply-via`, not both: the CLI, the gateway, and the ledger schema each refuse both. The gateway refuses (`reply_adapter_not_configured`, usage, exit 2) an adapter its active configuration does not define, before recording anything, so a feeder can fall back to another reply path.
+- `--key`, `--url`, `--reply-slack`, and `--reply-via` require `--source`. Invalid values fail locally with a usage error and are also refused by the gateway and by the ledger schema.
 
-The task is an ordinary local task (`source_kind` is `local`): it has no Slack source, no lifecycle reaction, and is not a Slack-origin task. Its named source is immutable provenance stored in `task_sources` and shown as the `source` object (`name`, `key`, `url`, and `reply_slack` with `channel_id` and `thread_ts`) in task DTOs, as the source name, key, URL, and `reply=CHANNEL:THREAD_TS` in human task cards, and on watch lines (section 5). Without a reply target it is not replied to with `task reply` (which fails as not found) and is finished with `task done`.
+The task is an ordinary local task (`source_kind` is `local`): it has no Slack source, no lifecycle reaction, and is not a Slack-origin task. Its named source is immutable provenance stored in `task_sources` and shown as the `source` object (`name`, `key`, `url`, `reply_slack` with `channel_id` and `thread_ts`, and `reply_via`) in task DTOs, as the source name, key, URL, `reply=CHANNEL:THREAD_TS`, and `via=NAME` in human task cards, and on watch lines (section 5). Without a reply target or adapter it is not replied to with `task reply` (which fails as not found) and is finished with `task done`.
 
-**Deduplication by key.** At most one retained task has a given source name and key. When `task create` names a source and key that a retained task already has, in any state, the gateway must create nothing and change nothing, and must return that task's mutation result with `changed: false`; the new text, URL, and reply target are ignored. A create that makes a new task returns `changed: true`. Keys are scoped to their source name. Without a key every create makes a new task. The key is released only when metadata purge removes its task (section 8), after which the same key creates a new task.
+**Deduplication by key.** At most one retained task has a given source name and key. When `task create` names a source and key that a retained task already has, in any state, the gateway must create nothing and change nothing, and must return that task's mutation result with `changed: false`; the new text, URL, reply target, and reply adapter are ignored. A create that makes a new task returns `changed: true`. Keys are scoped to their source name. Without a key every create makes a new task. The key is released only when metadata purge removes its task (section 8), after which the same key creates a new task.
 
 Request IDs keep their general meaning (section 2) and are not a substitute for keys: a request ID is one attempt of one exact input, its record expires, and its replay reports the original outcome. A feeder should therefore give every create a fresh request ID (the CLI generates one when omitted) and rely on the key for deduplication across runs and restarts.
 
 The `task_sources_v1` capability advertises this feature. A client must see it before sending `source`, `key`, or `url`, and otherwise fail with the unsupported category (exit 9).
 
-**Reply targets.** A local task whose named source has a reply target is answered with `task reply` exactly like a Slack-origin task (section 6), except that the destination is the reply target in the active workspace: the reply is a `send` effect into that channel and thread, related to the task. Because the target names no workspace, preparing the reply needs the active Slack runtime; while it is unavailable `task reply` fails with `slack_unavailable` and records nothing. The channel must be one the bot is a member of: the reply preflights the thread root in that channel like any threaded write, so a channel the bot cannot read, or a missing root, fails before any submission, and Slack enforces membership on the post itself. Once confirmed, the reply makes the thread tracked like any other confirmed `send` (section 4), so later human replies there are admitted as follow-ups. The `task_reply_targets_v1` capability advertises reply targets; a client must see it before sending `reply_slack`, and otherwise fail with the unsupported category (exit 9).
+**Reply targets.** A local task whose named source has a reply target is answered with `task reply` exactly like a Slack-origin task (section 6), except that the destination is the reply target in the active workspace: the reply is a `send` effect into that channel and thread, related to the task. Because the target names no workspace, preparing the reply needs the active Slack runtime; while it is unavailable `task reply` fails with `slack_unavailable` and records nothing. The channel must be one the bot is a member of: the reply preflights the thread root in that channel like any threaded write, so a channel the bot cannot read, or a missing root, fails before any submission, and Slack enforces membership on the post itself. Once confirmed, the reply makes the thread tracked like any other confirmed `send` (section 4), so later human replies there are admitted as follow-ups. The `task_reply_targets_v1` capability advertises reply targets; a client must see it before sending `reply_slack`, and otherwise fail with the unsupported category (exit 9). The `task_reply_adapters_v1` capability advertises reply adapters; a client must see it before sending `reply_via`, and otherwise fail the same way, so a new CLI refuses an old gateway.
+
+## 4c. Event hooks
+
+Event hooks (section 3) are notification only. For every Slack message event (new, `message_changed`, `message_deleted`, including the bot's own and those Cue ignores for admission) after its admission result is committed and acknowledged, except a duplicate redelivery or a malformed event, and for every reaction event on a message, the gateway queues one notification for each hook whose `channels` include the event's channel. Hooks must never change what is admitted, deduplicated, or acknowledged.
+
+The queue holds at most 256 events and one worker runs hooks one at a time, in name order for each event, off the Socket Mode path. Queueing never blocks: with no hook for the channel nothing is queued, and with a full queue the event is dropped and logged. Event IDs already queued are dropped (the last 4096 are remembered in memory). A hook that times out, ends by a signal, or exits non-zero is counted and logged as failed and never retried. Events queued when the gateway stops are lost. `gateway status` reports `event_hooks` counts (`configured`, `queued`, `delivered`, `failed`, `dropped`, `duplicates`) since start.
+
+A hook reads one JSON object on stdin:
+
+```json
+{"version":1,"kind":"reaction_added","event_id":"Ev0123","team_id":"T0123","channel":"C0123","ts":"1700000000.000100","thread_ts":"","user":"U0123","bot_id":"","reaction":"+1"}
+```
+
+Empty fields are omitted. `kind` is `app_mention`, `message`, `message_changed`, `message_deleted`, `reaction_added`, or `reaction_removed`. `ts` is the message the event is about (the new, changed, or deleted message, or the message reacted to). `thread_ts` is the thread root of a reply and is absent for a top-level message and for every reaction, because Slack does not say which thread a reacted message is in. `user` is the author of a message or the person who reacted; `bot_id` is set for a bot's message; `reaction` is the emoji name of a reaction event. Message text and files are never included: a hook that needs them reads them from Slack.
 
 ## 5. Task watch
 
@@ -136,10 +169,10 @@ Each event is the task's current snapshot at its latest change sequence. Changes
 The default line is:
 
 ```text
-cursor=SEQ change=created|edited|state task=TASK_ID version=N state=open|working|done source=local|slack|NAME channel=CHANNEL_ID thread=THREAD_TS parent=TASK_ID key=KEY url=URL reply=CHANNEL_ID:THREAD_TS text=ESCAPED
+cursor=SEQ change=created|edited|state task=TASK_ID version=N state=open|working|done source=local|slack|NAME channel=CHANNEL_ID thread=THREAD_TS parent=TASK_ID key=KEY url=URL reply=CHANNEL_ID:THREAD_TS via=ADAPTER text=ESCAPED
 ```
 
-`source` is the task's named source when it has one (section 4b), else `local` or `slack`. `channel` and `thread` are the Slack channel and reply thread root of a Slack task and are empty otherwise. `parent` is the source's `parent_task_id`, empty when absent. `key` and `url` are the named source's key and URL, empty when absent; they are printable ASCII without spaces, so they need no escaping. `reply` is the named source's Slack reply target, empty when absent; `channel` and `thread` stay empty for such a task because it is not a Slack task. `text` is the last field and is never truncated. It escapes backslash as `\\`, newline as `\n`, carriage return as `\r`, tab as `\t`, and every other control character and U+2028/U+2029 as `\uXXXX`; other printable Unicode is retained. With `--json`, each line is one `TaskChangeDTO` object (`change_seq`, `change`, and a `task` with the `TaskDTO` shape including `slack_source` for Slack tasks), and the cursor is `change_seq`.
+`source` is the task's named source when it has one (section 4b), else `local` or `slack`. `channel` and `thread` are the Slack channel and reply thread root of a Slack task and are empty otherwise. `parent` is the source's `parent_task_id`, empty when absent. `key` and `url` are the named source's key and URL, empty when absent; they are printable ASCII without spaces, so they need no escaping. `reply` is the named source's Slack reply target, empty when absent; `via` is its reply adapter, empty when absent; `channel` and `thread` stay empty for such a task because it is not a Slack task. `text` is the last field and is never truncated. It escapes backslash as `\\`, newline as `\n`, carriage return as `\r`, tab as `\t`, and every other control character and U+2028/U+2029 as `\uXXXX`; other printable Unicode is retained. With `--json`, each line is one `TaskChangeDTO` object (`change_seq`, `change`, and a `task` with the `TaskDTO` shape including `slack_source` for Slack tasks), and the cursor is `change_seq`.
 
 By default a live event is emitted when a task is created, when its content version changes, or when it enters `open`. `--state-changes` also emits transitions to `working` and `done`. Filtered changes still advance the cursor.
 
@@ -167,7 +200,29 @@ Conclusive rejection is `failed`. Timeout, disconnect, cancellation, or malforme
 
 `effect retry` creates a linked successor rather than rewriting its predecessor. Retrying an ambiguous effect requires explicit duplicate-risk confirmation. Task relationships are audit metadata only.
 
-`task reply` derives its destination from a durable Slack task source, or from the reply target of a local task's named source (section 4b). With `--done`, it must confirm the reply before applying the local completion. Interrupted replay with the same request ID must not post twice, and failures/ambiguity must leave the task incomplete.
+`task reply` derives its destination from a durable Slack task source, or from the reply target or reply adapter of a local task's named source (section 4b). With `--done`, it must confirm the reply before applying the local completion. Interrupted replay with the same request ID must not post twice, and failures/ambiguity must leave the task incomplete.
+
+## 6a. Reply adapters
+
+A reply adapter delivers `task reply` text for a local task whose named source names it (`--reply-via NAME`), instead of Slack. `task reply` on such a task:
+
+1. fails with `reply_adapter_not_configured` (usage, exit 2) if the active configuration no longer defines the adapter, recording nothing;
+2. records a `prepared` reply adapter effect under the request ID, keyed to the task, the adapter, and the SHA-256 of the reply text (the text itself is not stored). A replay with the same request ID and input returns that effect in its current state; other input under the same request ID is a conflict;
+3. if the effect is `prepared`, commits it as `submitted` (its one attempt) before the command starts, then runs the command once, detached from the client's cancellation, within the adapter's timeout;
+4. records the outcome: exit 0 is `confirmed`; exit 3 is `failed` (the adapter is sure it delivered nothing; diagnostic `adapter_failed`); a command that cannot be started is `failed` (`adapter_not_started`); every other exit code (`adapter_exit`, with the code kept), a signal (`adapter_signaled`), and the timeout (`timeout`) are `ambiguous`;
+5. with `--done`, completes the task only after a `confirmed` effect. A `failed` effect fails the command with `reply_adapter_failed` (external failure, exit 7) and an `ambiguous` one with `ambiguous_external_outcome` (exit 8), and both leave the task as it was.
+
+An effect is never run again, by replay, restart, or anything else: Cue retries no ambiguous external work. On startup the gateway marks every effect left `submitted` `ambiguous` (`startup_reconciliation`). To answer again after a failure, the caller replies with a new request ID, aware that an ambiguous reply may already have been delivered. The adapter makes its own delivery idempotent with the effect ID, which is stable for the effect.
+
+The command reads one JSON object on stdin:
+
+```json
+{"version":1,"effect_id":"EFFECT_ID","request_id":"REQUEST_ID","adapter":"NAME","task":{"id":"TASK_ID","source":"SOURCE","key":"KEY","url":"URL"},"text":"exact reply text"}
+```
+
+`key` and `url` are omitted when the task's source has none. `text` is the exact reply body. The command's stdout is ignored.
+
+The reply result carries `adapter_effect` (`effect_id`, `related_task_id`, `adapter`, `state`, `attempt_count`, `exit_code`, `diagnostic_code`, and timestamps) instead of `effect`. `task context` shows a task's newest adapter effect as `effects.latest_adapter_reply`. `gateway status` reports `reply_adapters` with the configured count, effects by state, and `action_required` (failed plus ambiguous). Adapter effects are not Slack effects: `effect list`, `effect inspect`, and `effect retry` do not show or retry them.
 
 ## 7. Files
 
@@ -181,7 +236,7 @@ Temporary files must use generated owner-only paths under the state root. Expire
 
 ## 8. Purge and diagnostics
 
-Purge requires an absolute RFC 3339 cutoff and exactly one of `--dry-run` or `--confirm`. Dry-run must not mutate state. Confirmed purge may remove eligible finalized history but must preserve open/working tasks, unresolved effects, live request outcomes, configuration, and every record required by retained state. Removing a task removes its named source row with it, counted with the task, which releases its key.
+Purge requires an absolute RFC 3339 cutoff and exactly one of `--dry-run` or `--confirm`. Dry-run must not mutate state. Confirmed purge may remove eligible finalized history but must preserve open/working tasks, unresolved effects, live request outcomes, configuration, and every record required by retained state. Removing a task removes its named source row with it, counted with the task, which releases its key. A task with a reply adapter effect that is not `confirmed` before the cutoff is retained; otherwise its adapter effects are removed with it and counted as `reply_adapter_effects`.
 
 `gateway status` must distinguish process health from outcomes requiring operator action and report bounded task, Slack, effect, database, and temporary-file state. `doctor` must be non-destructive: it must not send Slack messages, acknowledge events, or transfer bytes.
 
@@ -213,7 +268,7 @@ Cobra help is the complete command-discovery interface. Running the root or a co
 
 `task context TASK [--thread-limit N]` is a read-only bounded task workflow view. It includes the current durable task/source attachment metadata, latest reply effect, and at most ten newest non-confirmed related effects and their total. For Slack tasks it makes one best-effort live thread-page read (default 20, maximum 100); `thread.status` is `available`, `unavailable`, or `not_applicable`. An unavailable live thread is a successful partial result with a warning; missing tasks remain not-found. It never downloads files or returns live-reply file metadata, file bytes, private URLs, effect body text, or operator reasons.
 
-`task create` also accepts `--source NAME`, `--key KEY`, `--url URL`, and `--reply-slack CHANNEL:THREAD_TS` (section 4b). `task create`, `task update`, `task reply`, `slack send`, and `slack edit` require exactly one text source: `--text`, `--text-file`, or `--stdin`. `--text` is exact literal text and must not decode escapes: a supplied `\\n` is a backslash followed by `n`. `--text-file` and explicit stdin preserve exact multiline UTF-8 bodies; stdin reads its complete bounded body (including trailing newlines) before gateway interaction. Empty, NUL-containing, malformed UTF-8, and over-limit bodies fail locally. This body stdin is independent from `config secret set --stdin` credential input.
+`task create` also accepts `--source NAME`, `--key KEY`, `--url URL`, and `--reply-slack CHANNEL:THREAD_TS` or `--reply-via NAME` (section 4b). `task create`, `task update`, `task reply`, `slack send`, and `slack edit` require exactly one text source: `--text`, `--text-file`, or `--stdin`. `--text` is exact literal text and must not decode escapes: a supplied `\\n` is a backslash followed by `n`. `--text-file` and explicit stdin preserve exact multiline UTF-8 bodies; stdin reads its complete bounded body (including trailing newlines) before gateway interaction. Empty, NUL-containing, malformed UTF-8, and over-limit bodies fail locally. This body stdin is independent from `config secret set --stdin` credential input.
 
 For every syntactically valid leaf invocation other than `task watch` whose parsed `--json` flag is true, success and runtime failure write exactly one JSON object followed by one newline to stdout and nothing to stderr. Successful objects retain each command's existing DTO shape. Runtime failures use a shared error object with `code`, `category`, `message`, `retriable`, and optional safe `details`, `progress`, `request_id`, and guidance; doctor gateway failures additionally contain only the completed diagnostic report in `partial_result`. Parse and usage failures remain text on stderr with exit 2.
 
@@ -235,7 +290,7 @@ Stable process exit categories are:
 
 ## 10. Release invariants
 
-1. An identifiable Slack envelope is acknowledged only after its admission/deduplication result commits.
+1. An identifiable Slack envelope is acknowledged only after its admission/deduplication result commits, except a reaction or unused event type, which is never admitted and leaves no record (section 4).
 2. One admitted Slack source maps to at most one task.
 3. Task state and Slack content remain independent except for the explicit confirmed-reply composition; lifecycle reactions only project state.
 4. SQLite is the sole coordination authority.
@@ -246,5 +301,7 @@ Stable process exit categories are:
 9. Watching tasks never changes task or Slack state.
 10. Tokens never enter SQLite, logs, or protocol output.
 11. Configuration reload either activates one complete verified snapshot or leaves the previous snapshot active.
+12. Event hooks are notification only: they never change admission, deduplication, or acknowledgement, and are never retried.
+13. A reply adapter effect is submitted before its command runs and is run at most once.
 
 The automated Go suite (`just check`) is the repeatable release gate. Future work belongs in issues or scoped proposals, not numbered implementation milestones in this specification.

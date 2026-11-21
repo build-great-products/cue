@@ -142,6 +142,16 @@ func ValidateEnvelope(envelope Envelope) error {
 	if err := validateText(envelope.Text); err != nil {
 		return err
 	}
+	if envelope.Kind.Reaction() {
+		if normalized, err := NormalizeEmoji(envelope.Reaction); err != nil || normalized != envelope.Reaction {
+			return errors.New("invalid Slack reaction name")
+		}
+		if envelope.ThreadTS != "" || envelope.Text != "" || len(envelope.Files) != 0 {
+			return errors.New("a reaction event carries only its message and emoji")
+		}
+	} else if envelope.Reaction != "" {
+		return errors.New("only a reaction event carries a reaction name")
+	}
 	if len(envelope.Files) > MaxFiles {
 		return errors.New("too many Slack files")
 	}

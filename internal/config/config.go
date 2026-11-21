@@ -43,10 +43,140 @@ type Config struct {
 	MaximumFilesPerSlackOperation int      `toml:"maximum_files_per_slack_operation" json:"maximum_files_per_slack_operation"`
 	TemporaryDownloadLifetime     string   `toml:"temporary_download_lifetime" json:"temporary_download_lifetime"`
 	LocalProtocolMaximumFrame     int      `toml:"local_protocol_maximum_frame" json:"local_protocol_maximum_frame"`
-	Paths                         Paths    `toml:"-" json:"paths"`
+	// ReplyAdapters are commands that deliver task replies (task create
+	// --reply-via NAME). Optional; keyed by name.
+	ReplyAdapters map[string]ReplyAdapter `toml:"reply_adapters" json:"reply_adapters,omitempty"`
+	// EventHooks are commands told about Slack message and reaction events.
+	// Optional; keyed by name.
+	EventHooks map[string]EventHook `toml:"event_hooks" json:"event_hooks,omitempty"`
+	Paths      Paths                `toml:"-" json:"paths"`
 }
 
 // Paths are fixed XDG-derived locations exposed for consumers of Config.
+// ReplyAdapter is a command that delivers a task's reply somewhere other
+// than Slack. Timeout is a Go duration, 30s when empty, at most 5m.
+type ReplyAdapter struct {
+	Command string `toml:"command" json:"command"`
+	Timeout string `toml:"timeout" json:"timeout,omitempty"`
+}
+
+// EventHook is a command run for each Slack message and reaction event in
+// Channels (every channel when empty). Timeout is a Go duration, 10s when
+// empty, at most 1m.
+type EventHook struct {
+	Command  string   `toml:"command" json:"command"`
+	Channels []string `toml:"channels" json:"channels,omitempty"`
+	Timeout  string   `toml:"timeout" json:"timeout,omitempty"`
+}
+
+const (
+	DefaultReplyAdapterTimeout = 30 * time.Second
+	MaxReplyAdapterTimeout     = 5 * time.Minute
+	DefaultEventHookTimeout    = 10 * time.Second
+	MaxEventHookTimeout        = time.Minute
+	// MaxCommands bounds each of reply_adapters and event_hooks.
+	MaxCommands = 8
+)
+
+// TimeoutDuration is the adapter's validated timeout.
+func (a ReplyAdapter) TimeoutDuration() time.Duration {
+	return durationOr(a.Timeout, DefaultReplyAdapterTimeout)
+}
+
+// TimeoutDuration is the hook's validated timeout.
+func (h EventHook) TimeoutDuration() time.Duration {
+	return durationOr(h.Timeout, DefaultEventHookTimeout)
+}
+
+// Wants reports whether the hook is told about events in channel.
+func (h EventHook) Wants(channel string) bool {
+	if len(h.Channels) == 0 {
+		return true
+	}
+	for _, c := range h.Channels {
+		if c == channel {
+			return true
+		}
+	}
+	return false
+}
+
+func durationOr(value string, fallback time.Duration) time.Duration {
+	if value == "" {
+		return fallback
+	}
+	d, err := time.ParseDuration(value)
+	if err != nil {
+		return fallback
+	}
+	return d
+}
+
+var (
+	commandName = regexp.MustCompile(`^[a-z0-9-]{1,32}$`)
+	channelID   = regexp.MustCompile(`^[CG][A-Z0-9]{1,127}$`)
+)
+
+func validateCommands(c Config) error {
+	if len(c.ReplyAdapters) > MaxCommands {
+		return fmt.Errorf("at most %d reply_adapters", MaxCommands)
+	}
+	if len(c.EventHooks) > MaxCommands {
+		return fmt.Errorf("at most %d event_hooks", MaxCommands)
+	}
+	for name, a := range c.ReplyAdapters {
+		if err := validateCommand("reply_adapters", name, a.Command, a.Timeout, MaxReplyAdapterTimeout); err != nil {
+			return err
+		}
+	}
+	for name, h := range c.EventHooks {
+		if err := validateCommand("event_hooks", name, h.Command, h.Timeout, MaxEventHookTimeout); err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, ch := range h.Channels {
+			if !channelID.MatchString(ch) || seen[ch] {
+				return fmt.Errorf("event_hooks.%s.channels must list distinct C or G channel IDs", name)
+			}
+			seen[ch] = true
+		}
+	}
+	return nil
+}
+
+func validateCommand(table, name, command, timeout string, maximum time.Duration) error {
+	if !commandName.MatchString(name) {
+		return fmt.Errorf("%s name %q must be 1 to 32 characters of a-z, 0-9 and -", table, name)
+	}
+	if command == "" || !filepath.IsAbs(command) || filepath.Clean(command) != command {
+		return fmt.Errorf("%s.%s.command must be an absolute, clean path", table, name)
+	}
+	if timeout != "" {
+		d, err := time.ParseDuration(timeout)
+		if err != nil || d < time.Second || d > maximum {
+			return fmt.Errorf("%s.%s.timeout must be a Go duration from 1s to %s", table, name, maximum)
+		}
+	}
+	return nil
+}
+
+// checkCommandFiles applies the private-path rules to every configured
+// command (securepath.CheckExecutable). It reads the filesystem, so it runs
+// when a config is loaded for use, not in Validate.
+func checkCommandFiles(c Config) error {
+	for name, a := range c.ReplyAdapters {
+		if err := securepath.CheckExecutable(a.Command); err != nil {
+			return fmt.Errorf("reply_adapters.%s.command: %w", name, err)
+		}
+	}
+	for name, h := range c.EventHooks {
+		if err := securepath.CheckExecutable(h.Command); err != nil {
+			return fmt.Errorf("event_hooks.%s.command: %w", name, err)
+		}
+	}
+	return nil
+}
+
 // ByteSize is a non-negative binary byte quantity. It accepts legacy TOML
 // integers and documented B, KiB, MiB, or GiB strings.
 type ByteSize int64
@@ -295,6 +425,9 @@ func decode(loc Location, b []byte) (Config, error) {
 	if err := Validate(c); err != nil {
 		return Config{}, err
 	}
+	if err := checkCommandFiles(c); err != nil {
+		return Config{}, err
+	}
 	return c, nil
 }
 
@@ -374,7 +507,7 @@ func Validate(c Config) error {
 	if c.LocalProtocolMaximumFrame < 64<<10 || c.LocalProtocolMaximumFrame > 16<<20 {
 		return errors.New("local_protocol_maximum_frame must be between 65536 and 16777216")
 	}
-	return nil
+	return validateCommands(c)
 }
 
 func optionalToken(name, value string) error {
@@ -802,6 +935,9 @@ type View struct {
 	MaximumFilesPerSlackOperation int    `json:"maximum_files_per_slack_operation"`
 	TemporaryDownloadLifetime     string `json:"temporary_download_lifetime"`
 	LocalProtocolMaximumFrame     int    `json:"local_protocol_maximum_frame"`
+	// Command paths are not secret.
+	ReplyAdapters map[string]ReplyAdapter `json:"reply_adapters,omitempty"`
+	EventHooks    map[string]EventHook    `json:"event_hooks,omitempty"`
 }
 
 // Redact returns a structurally token-free configuration view.
@@ -809,5 +945,6 @@ func Redact(c Config) View {
 	return View{c.Version, c.Paths, c.SlackAppToken != "", c.SlackBotToken != "", "verified_at_runtime",
 		c.SlackReconnectInitialBackoff,
 		c.SlackReconnectMaxBackoff, c.SlackReconnectJitter, c.SQLiteBusyTimeout, int64(c.MaximumFileSize),
-		c.MaximumFilesPerSlackOperation, c.TemporaryDownloadLifetime, c.LocalProtocolMaximumFrame}
+		c.MaximumFilesPerSlackOperation, c.TemporaryDownloadLifetime, c.LocalProtocolMaximumFrame,
+		c.ReplyAdapters, c.EventHooks}
 }

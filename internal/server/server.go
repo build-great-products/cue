@@ -18,6 +18,7 @@ import (
 
 	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/eventhooks"
 	"github.com/build-great-products/cue/internal/fileio"
 	"github.com/build-great-products/cue/internal/filetransfer"
 	"github.com/build-great-products/cue/internal/protocol"
@@ -90,6 +91,9 @@ type Server struct {
 	slackDiagnosticMu     sync.RWMutex
 	slackVerificationCode slackapi.DiagnosticCode
 	slackVerificationHeld bool
+	// hooks tells configured event hooks about Slack message and reaction
+	// events, off the Socket Mode path.
+	hooks *eventhooks.Runner
 }
 
 func New(c config.Config, loc config.Location, version string, log *slog.Logger) *Server {
@@ -102,6 +106,7 @@ func New(c config.Config, loc config.Location, version string, log *slog.Logger)
 	s := &Server{Config: c, ConfigLocation: loc, Version: version, Log: log, closing: make(chan struct{}), slots: make(chan struct{}, 64), active: make(map[*net.UnixConn]context.CancelFunc), slackDisabled: true, slackState: slackruntime.StateDisabled}
 	s.activeConfig.Store(&c)
 	s.generation.Store(1)
+	s.hooks = eventhooks.New(func() map[string]config.EventHook { return s.snapshot().EventHooks }, log)
 	return s
 }
 
@@ -197,6 +202,14 @@ func (s *Server) open(ctx context.Context) error {
 		return err
 	}
 	s.store = db
+	s.hooks.Start(ctx)
+	// A reply adapter run cut short by a stopped gateway may or may not have
+	// delivered: it becomes ambiguous and is never run again.
+	if n, err := db.ReconcileSubmittedReplyAdapterEffects(ctx); err != nil {
+		return err
+	} else if n != 0 {
+		s.Log.Warn("reply adapter effects left submitted are now ambiguous", "count", n)
+	}
 	// Reconcile uncertainty before any prepared effect can be submitted, then
 	// verify Socket readiness before making the local endpoint reachable.
 	if err := s.startSlack(ctx, c); err != nil {
@@ -568,6 +581,12 @@ func (s *Server) dispatchConnection(ctx context.Context, r protocol.Request, con
 		if p.ReplySlack != nil {
 			src.ReplySlack = &store.SlackReplyTarget{ChannelID: p.ReplySlack.ChannelID, ThreadTS: p.ReplySlack.ThreadTS}
 		}
+		src.ReplyAdapter = p.ReplyVia
+		if _, configured := s.snapshot().ReplyAdapters[p.ReplyVia]; p.ReplyVia != "" && !configured {
+			// Refused before anything is recorded, so a feeder can fall back.
+			err = errReplyAdapterNotConfigured
+			break
+		}
 		result, err = s.store.CreateFromSource(ctx, r.RequestID, p.Text, src)
 	case "task.get":
 		var p protocol.TaskSelector
@@ -773,6 +792,12 @@ func (s *Server) taskContext(ctx context.Context, p protocol.TaskContextParams) 
 		v := slackEffectDTO(*model.LatestReplyEffect)
 		out.Effects.LatestReply = &v
 	}
+	if latest, ok, err := s.store.LatestReplyAdapterEffect(ctx, model.Task.ID); err != nil {
+		return protocol.TaskContextDTO{}, err
+	} else if ok {
+		v := replyAdapterEffectDTO(latest)
+		out.Effects.LatestAdapterReply = &v
+	}
 	if model.SlackSource == nil {
 		return out, nil
 	}
@@ -811,8 +836,15 @@ func (s *Server) taskContext(ctx context.Context, p protocol.TaskContextParams) 
 func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.TaskReplyParams) (protocol.TaskReplyDTO, error) {
 	source, err := s.store.GetSlackSource(ctx, p.Task)
 	if errors.Is(err, store.ErrNotFound) {
-		// A local task from a named source may carry a Slack thread to reply
-		// in. Without one, the task stays not found for task reply.
+		// A local task from a named source may name a reply adapter, which
+		// delivers the reply instead of Slack.
+		if t, adapter, adapterErr := s.store.GetTaskReplyAdapter(ctx, p.Task); adapterErr == nil {
+			return s.replyViaAdapter(ctx, requestID, p, t, adapter)
+		} else if !errors.Is(adapterErr, store.ErrNotFound) {
+			return protocol.TaskReplyDTO{}, adapterErr
+		}
+		// It may carry a Slack thread to reply in. Without either, the task
+		// stays not found for task reply.
 		t, target, targetErr := s.store.GetTaskReplyTarget(ctx, p.Task)
 		if targetErr != nil {
 			return protocol.TaskReplyDTO{}, targetErr
@@ -1044,7 +1076,13 @@ func (s *Server) status(ctx context.Context) (status.Snapshot, error) {
 	if err != nil {
 		return status.Snapshot{}, err
 	}
-	return status.Snapshot{UptimeSeconds: int64(time.Since(s.started).Seconds()), ServerVersion: s.Version, ProtocolVersion: protocol.Version, SchemaVersion: store.SchemaVersion, ActiveConfigGeneration: s.generation.Load(), ActiveConfigDigest: s.activeDigest, PID: os.Getpid(), Database: c.Paths.Database, Endpoint: s.endpoint, TaskCounts: counts, DatabaseBytes: dbSize, WALBytes: walSize, Connections: int(s.connections.Load()), Health: "healthy", EffectsCapability: "available", SlackCapability: string(s.slackState), FileTransfer: transfer, Slack: slack}, nil
+	adapterEffects, err := s.store.ReplyAdapterEffectCounts(ctx)
+	if err != nil {
+		return status.Snapshot{}, err
+	}
+	replyAdapters := map[string]any{"configured": len(c.ReplyAdapters), "effects_by_state": adapterEffects,
+		"action_required": adapterEffects[store.SlackEffectFailed] + adapterEffects[store.SlackEffectAmbiguous]}
+	return status.Snapshot{UptimeSeconds: int64(time.Since(s.started).Seconds()), ServerVersion: s.Version, ProtocolVersion: protocol.Version, SchemaVersion: store.SchemaVersion, ActiveConfigGeneration: s.generation.Load(), ActiveConfigDigest: s.activeDigest, PID: os.Getpid(), Database: c.Paths.Database, Endpoint: s.endpoint, TaskCounts: counts, DatabaseBytes: dbSize, WALBytes: walSize, Connections: int(s.connections.Load()), Health: "healthy", EffectsCapability: "available", SlackCapability: string(s.slackState), FileTransfer: transfer, Slack: slack, ReplyAdapters: replyAdapters, EventHooks: s.hooks.Stats()}, nil
 }
 func (s *Server) fileTransferStatus(ctx context.Context) (status.FileTransferStatus, error) {
 	out := status.FileTransferStatus{Capability: "unavailable", IncomingByState: map[string]int64{}, OutgoingByState: map[string]int64{}}
@@ -1165,6 +1203,15 @@ func errorResponse(id, version string, err error) protocol.Response {
 		code, category = "channel_required", "usage"
 	case errors.Is(err, slackops.ErrUnavailable), errors.Is(err, slackruntime.ErrClosed):
 		code, category = "slack_unavailable", "unavailable"
+	case errors.Is(err, errReplyAdapterNotConfigured):
+		code, category = "reply_adapter_not_configured", "usage"
+	case func() bool { var adapter *replyAdapterError; return errors.As(err, &adapter) }():
+		var adapter *replyAdapterError
+		_ = errors.As(err, &adapter)
+		code, category = "reply_adapter_failed", "external_failed"
+		if adapter.effect.State != store.SlackEffectFailed {
+			code, category = "ambiguous_external_outcome", "ambiguous"
+		}
 	default:
 		var failure *slackops.FailureError
 		var reload *reloadError
@@ -1249,6 +1296,7 @@ func taskDTO(t store.Task) protocol.TaskDTO {
 		if t.Source.ReplySlack != nil {
 			out.Source.ReplySlack = &protocol.SlackThreadDTO{ChannelID: t.Source.ReplySlack.ChannelID, ThreadTS: t.Source.ReplySlack.ThreadTS}
 		}
+		out.Source.ReplyVia = t.Source.ReplyAdapter
 	}
 	return out
 }

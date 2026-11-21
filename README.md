@@ -43,7 +43,7 @@ just build
 ./bin/cue config secret set slack_bot_token
 ```
 
-Import [`manifest.json`](manifest.json) into a Slack development app, create an app-level Socket Mode token with `connections:write`, install the app in the intended workspace, and invite it to each channel that should give it work. The manifest covers public (`message.channels`, `channels:read`, `channels:history`) and private (`message.groups`, `groups:read`, `groups:history`) channels; the gateway verifies every listed scope at startup. Do not add administrative, DM, slash-command, interactivity, or broad channel-join permissions.
+Import [`manifest.json`](manifest.json) into a Slack development app, create an app-level Socket Mode token with `connections:write`, install the app in the intended workspace, and invite it to each channel that should give it work. The manifest covers public (`message.channels`, `channels:read`, `channels:history`) and private (`message.groups`, `groups:read`, `groups:history`) channels, and subscribes to `reaction_added` and `reaction_removed` (with `reactions:read`) for event hooks; the gateway verifies every listed scope at startup. Reactions are never work: they only reach event hooks. Do not add administrative, DM, slash-command, interactivity, or broad channel-join permissions.
 
 The gateway admits work from every channel the bot is a member of. Inviting the bot to a channel is how you give that channel's members a way to send it work, and removing it is how you take that away. There is no channel or user allowlist.
 
@@ -115,16 +115,16 @@ Default output is compact human-readable cards, rows, and labelled details; use 
 `cue task watch` is how an agent receives work. It stays connected to the gateway and prints one line per task event on stdout until interrupted:
 
 ```text
-cursor=7 change=created task=AbCdEfGhIjKlMnOpQrStUv version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent= key= url= reply= text=<@U012BOT> review the release\nthanks
-cursor=9 change=created task=ZyXwVuTsRqPoNmLkJiHgFe version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent=AbCdEfGhIjKlMnOpQrStUv key= url= reply= text=Perfect
-cursor=12 change=created task=QwErTyUiOpAsDfGhJkLzXc version=1 state=open source=tracker channel= thread= parent= key=tracker:item-12:comment-34 url=https://tracker.example.com/items/12 reply=C0TRACKER:1700000500.000100 text=New comment on item 12
+cursor=7 change=created task=AbCdEfGhIjKlMnOpQrStUv version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent= key= url= reply= via= text=<@U012BOT> review the release\nthanks
+cursor=9 change=created task=ZyXwVuTsRqPoNmLkJiHgFe version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent=AbCdEfGhIjKlMnOpQrStUv key= url= reply= via= text=Perfect
+cursor=12 change=created task=QwErTyUiOpAsDfGhJkLzXc version=1 state=open source=tracker channel= thread= parent= key=tracker:item-12:comment-34 url=https://tracker.example.com/items/12 reply=C0TRACKER:1700000500.000100 via= text=New comment on item 12
 ```
 
 - `change` is `created`, `edited` (content version changed, for example a Slack edit), or `state` (the task re-entered `open`).
 - `source` is `slack`, `local`, or the name a feeder gave with `--source`.
 - `channel` is the task's Slack channel ID and `thread` its reply thread (the root message timestamp); both are empty for other tasks.
 - `parent` is set on a thread follow-up and names the thread's original task; it is empty otherwise.
-- `key` and `url` are a feeder's `--key` and `--url`, and `reply` its `--reply-slack` thread; all are empty when absent.
+- `key` and `url` are a feeder's `--key` and `--url`, `reply` its `--reply-slack` thread, and `via` its `--reply-via` adapter; all are empty when absent.
 - `text` is the last field, never truncated, with backslash, newlines, tabs, and other control characters escaped so one event is always one line.
 - `--json` prints one JSON object per line instead: `{"change_seq":7,"change":"created","task":{...}}`, where `task` is the same DTO as `task show --json`.
 - `--state-changes` also reports transitions to `working` and `done`.
@@ -165,6 +165,7 @@ cue task create --source tracker --key tracker:item-12:comment-34 \
 - `--key KEY` makes re-running a feeder safe. If a task with the same source and key already exists, in any state, nothing is created or changed and the existing task comes back with `"changed": false`. A new task has `"changed": true`. Choose a key that identifies the event, not its content: an ID from the other system, never a timestamp of when the feeder ran. Keys are 1 to 256 printable ASCII characters without spaces, and are scoped to their source.
 - `--url URL` is an `http(s)` link to the original item, shown with the task.
 - `--reply-slack CHANNEL:THREAD_TS` names a Slack thread to answer in, for a system that mirrors its items into Slack threads: a `C...` or `G...` channel ID and the thread root's timestamp, for example `C0TRACKER:1700000500.000100`. It appears as `reply=` on watch lines and in `task show`, and as `"reply_slack": {"channel_id", "thread_ts"}` in `--json`. The bot must be a member of that channel.
+- `--reply-via NAME` names a reply adapter instead (see [Reply adapters](#reply-adapters)): `task reply` runs that command rather than posting to Slack. It appears as `via=` on watch lines and `"reply_via"` in `--json`. A task has `--reply-slack` or `--reply-via`, not both, and a gateway without that adapter refuses the create with exit 2, so a feeder can retry with `--reply-slack`.
 
 Do not use `--request-id` for this. A request ID is for retrying one interrupted command with exactly the same input: reusing it with different text fails as a conflict, a replay cannot tell you whether the task already existed, and its record expires after 30 days. Let the CLI generate a fresh request ID for every create and rely on `--key`.
 
@@ -174,6 +175,43 @@ Named-source tasks are local tasks. Finish one with `task done`, or, when it has
 out=$(cue task create --source tracker --key "$key" --url "$url" --text "$text" --json)
 if [ "$(printf '%s' "$out" | jq -r .result.changed)" = true ]; then echo "new task"; fi
 ```
+
+## Reply adapters
+
+A reply adapter is a command that delivers `task reply` text somewhere other than Slack, for example into another system that shows the conversation and forwards it to Slack itself. Define it in `config.toml` and reload:
+
+```toml
+[reply_adapters.tracker]
+command = "/home/me/.local/libexec/cue/tracker-reply"
+timeout = "30s"
+```
+
+The command must be an absolute path to an executable owned by you, not writable by group or others, in directories that are not group- or world-writable and contain no symlinks; the gateway refuses to start (and a reload fails) otherwise. Tasks created with `--source tracker --reply-via tracker` are answered by running it once per reply, with no shell, and this JSON on stdin:
+
+```json
+{"version":1,"effect_id":"…","request_id":"…","adapter":"tracker","task":{"id":"…","source":"tracker","key":"tracker:item-12:comment-34","url":"https://tracker.example.com/items/12"},"text":"exact reply text"}
+```
+
+Exit 0 means delivered (`confirmed`, and `--done` completes the task). Exit 3 means certainly not delivered (`failed`, exit 7). Anything else, a signal, or the timeout is `ambiguous` (exit 8). Cue records the reply as submitted before it runs the command and never runs it again for that reply, even after a restart, so make delivery idempotent on `effect_id`. Keep message text out of stderr: its start is logged when the command fails. `task context` shows the latest run as `latest_adapter_reply`, and `gateway status` counts failed and ambiguous runs under `reply_adapters`.
+
+## Event hooks
+
+An event hook is a command Cue runs for every Slack message event (new, edited, deleted, whether or not it became a task) and every reaction added or removed on a message, in the channels it lists, so another system can refresh what it shows at once instead of polling:
+
+```toml
+[event_hooks.tracker]
+command = "/home/me/.local/libexec/cue/tracker-hook"
+channels = ["C0BAQM6JEAJ"]
+timeout = "10s"
+```
+
+The command gets one JSON object on stdin and no message text:
+
+```json
+{"version":1,"kind":"reaction_added","event_id":"Ev0123","team_id":"T0123","channel":"C0BAQM6JEAJ","ts":"1700000000.000100","user":"U0123","reaction":"+1"}
+```
+
+`kind` is `app_mention`, `message`, `message_changed`, `message_deleted`, `reaction_added`, or `reaction_removed`; `thread_ts` is set for a reply (never for a reaction, which Slack does not place in a thread). Hooks never change what becomes a task. They run one at a time from a queue of 256 after the event is committed and acknowledged; a full queue drops events, Slack redeliveries are dropped by event ID, and a failed run is logged and not retried. `gateway status` counts them under `event_hooks`. The same path rules as for reply adapters apply.
 
 ## Slack commands and channels
 

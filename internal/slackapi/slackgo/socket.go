@@ -278,6 +278,15 @@ func (stream *envelopeStream) Receive(ctx context.Context) (slackapi.Envelope, e
 			return slackapi.Envelope{}, disconnected()
 		case socketmode.RequestTypeEventsAPI:
 			envelope, normalizeErr := stream.normalize(request)
+			if errors.Is(normalizeErr, errIgnoredEvent) {
+				// An event type Cue does not use: acknowledge it so Slack does
+				// not redeliver it, and keep reading. It is not a socket
+				// failure and records nothing.
+				if ackErr := envelope.Ack.Acknowledge(ctx); ackErr != nil {
+					return slackapi.Envelope{}, ackErr
+				}
+				continue
+			}
 			return envelope, normalizeErr
 		default:
 			if envelope, ok := stream.malformedEnvelope(request); ok {
@@ -303,6 +312,9 @@ func (stream *envelopeStream) normalize(request socketmode.Request) (envelope sl
 			envelope = malformed
 		}
 	}()
+	if ignoredEventType(request.Payload) {
+		return slackapi.Envelope{}, errIgnoredEvent
+	}
 	event, err := slackevents.ParseEvent(request.Payload, slackevents.OptionNoVerifyToken())
 	if err != nil || event.Type != slackevents.CallbackEvent {
 		return slackapi.Envelope{}, invalidResponse()
@@ -353,8 +365,26 @@ func (stream *envelopeStream) normalize(request socketmode.Request) (envelope sl
 			// inventing an ordering value that can collide.
 			err = errors.New("imprecise changed or deleted event")
 		}
+	case *slackevents.ReactionAddedEvent:
+		if inner == nil {
+			return slackapi.Envelope{}, invalidResponse()
+		}
+		if inner.Item.Type != "message" {
+			return slackapi.Envelope{}, errIgnoredEvent
+		}
+		normalizeReaction(&envelope, slackapi.EventReactionAdded, inner.User, inner.Reaction, inner.Item.Channel, inner.Item.Timestamp, firstNonEmpty(inner.EventTimestamp, fallbackEventTS))
+	case *slackevents.ReactionRemovedEvent:
+		if inner == nil {
+			return slackapi.Envelope{}, invalidResponse()
+		}
+		if inner.Item.Type != "message" {
+			return slackapi.Envelope{}, errIgnoredEvent
+		}
+		normalizeReaction(&envelope, slackapi.EventReactionRemoved, inner.User, inner.Reaction, inner.Item.Channel, inner.Item.Timestamp, firstNonEmpty(inner.EventTimestamp, fallbackEventTS))
 	default:
-		return slackapi.Envelope{}, invalidResponse()
+		// Any other event type the app is subscribed to (now or later) is
+		// acknowledged and dropped rather than treated as a socket failure.
+		return slackapi.Envelope{}, errIgnoredEvent
 	}
 	if err != nil {
 		return slackapi.Envelope{}, invalidResponse()
@@ -369,6 +399,48 @@ func (stream *envelopeStream) normalize(request socketmode.Request) (envelope sl
 		return slackapi.Envelope{}, invalidResponse()
 	}
 	return envelope, nil
+}
+
+// errIgnoredEvent marks an identifiable envelope whose event Cue does not
+// use. Receive acknowledges it and reads on.
+var errIgnoredEvent = errors.New("ignored Slack event type")
+
+// ignoredEventType reports whether payload is an event callback whose inner
+// event is of a type Cue does not use, or a reaction on something other than
+// a message. The SDK refuses to parse inner types it
+// does not know, so this looks before parsing.
+func ignoredEventType(payload json.RawMessage) bool {
+	var outer struct {
+		Type  string `json:"type"`
+		Event struct {
+			Type string `json:"type"`
+			Item struct {
+				Type string `json:"type"`
+			} `json:"item"`
+		} `json:"event"`
+	}
+	if json.Unmarshal(payload, &outer) != nil || outer.Type != string(slackevents.CallbackEvent) {
+		return false
+	}
+	switch outer.Event.Type {
+	case "app_mention", "message":
+		return false
+	case "reaction_added", "reaction_removed":
+		// Only reactions on messages are used. A file reaction's item does
+		// not even parse with the SDK.
+		return outer.Event.Item.Type != "message"
+	default:
+		return outer.Event.Type != ""
+	}
+}
+
+func normalizeReaction(envelope *slackapi.Envelope, kind slackapi.EventKind, user, reaction, channel, messageTS, eventTS string) {
+	envelope.Kind = kind
+	envelope.UserID = user
+	envelope.Reaction = reaction
+	envelope.ChannelID = channel
+	envelope.MessageTS = slackapi.Timestamp(messageTS)
+	envelope.EventTS = slackapi.Timestamp(eventTS)
 }
 
 func normalizeMessageEvent(envelope *slackapi.Envelope, event *slackevents.MessageEvent, fallbackEventTS string, maxFiles int) error {

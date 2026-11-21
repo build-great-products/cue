@@ -13,7 +13,7 @@ import (
 
 // taskOrigin carries task create's optional named source flags. ReplySlack
 // is the raw CHANNEL:THREAD_TS value of --reply-slack.
-type taskOrigin struct{ Source, Key, URL, ReplySlack string }
+type taskOrigin struct{ Source, Key, URL, ReplySlack, ReplyVia string }
 
 // parseReplySlack splits and validates a --reply-slack CHANNEL:THREAD_TS value.
 func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
@@ -37,8 +37,14 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if err != nil {
 			return err
 		}
-		if origin.Source == "" && (origin.Key != "" || origin.URL != "" || origin.ReplySlack != "") {
-			return usage("--key, --url, and --reply-slack require --source")
+		if origin.Source == "" && (origin.Key != "" || origin.URL != "" || origin.ReplySlack != "" || origin.ReplyVia != "") {
+			return usage("--key, --url, --reply-slack, and --reply-via require --source")
+		}
+		if origin.ReplySlack != "" && origin.ReplyVia != "" {
+			return usage("--reply-slack and --reply-via are mutually exclusive")
+		}
+		if origin.ReplyVia != "" && !task.ValidSourceName(origin.ReplyVia) {
+			return usage("--reply-via must be 1 to 32 characters of a-z, 0-9, and '-'")
 		}
 		if origin.Source != "" && !task.ValidSourceName(origin.Source) {
 			return usage("--source must be 1 to 32 characters of a-z, 0-9, and '-', and not local or slack")
@@ -49,7 +55,7 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if origin.URL != "" && !task.ValidSourceURL(origin.URL) {
 			return usage("--url must be an http or https URL of at most 2048 printable ASCII characters without spaces")
 		}
-		create := protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL}
+		create := protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL, ReplyVia: origin.ReplyVia}
 		if origin.ReplySlack != "" {
 			if create.ReplySlack, err = parseReplySlack(origin.ReplySlack); err != nil {
 				return err
@@ -120,6 +126,9 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 	}
 	if origin.ReplySlack != "" {
 		capabilities = append(capabilities, protocol.CapabilityTaskReplyTargets)
+	}
+	if origin.ReplyVia != "" {
+		capabilities = append(capabilities, protocol.CapabilityTaskReplyAdapters)
 	}
 	out, err := a.gatewayCall(c, taskProtocolCommand(command), requestID, params, capabilities...)
 	if err != nil {

@@ -258,3 +258,37 @@ func Descendant(root, child string) bool {
 	rel, err := filepath.Rel(filepath.Clean(root), filepath.Clean(child))
 	return err == nil && rel != "." && rel != ".." && !(len(rel) > 3 && rel[:3] == ".."+string(os.PathSeparator))
 }
+
+// CheckExecutable requires a configured command: an absolute, clean path to a
+// regular, singly linked file owned by the effective user, executable by its
+// owner and not writable by group or others, whose every directory component
+// is symlink-free and not group/world writable. Nothing else may be able to
+// change what the gateway runs.
+func CheckExecutable(path string) error {
+	if !filepath.IsAbs(path) || filepath.Clean(path) != path {
+		return fmt.Errorf("unsafe command %q: must be an absolute, clean path", path)
+	}
+	if err := CheckAbsoluteComponents(filepath.Dir(path)); err != nil {
+		return err
+	}
+	info, st, err := stat(path)
+	if err != nil {
+		return err
+	}
+	if st.Uid != uint32(UID()) {
+		return fmt.Errorf("unsafe command %q: not owned by effective user", path)
+	}
+	if !info.Mode().IsRegular() {
+		return fmt.Errorf("unsafe command %q: not a regular file", path)
+	}
+	if st.Nlink != 1 {
+		return fmt.Errorf("unsafe command %q: hard-linked file", path)
+	}
+	if info.Mode().Perm()&0022 != 0 {
+		return fmt.Errorf("unsafe command %q: group/world writable", path)
+	}
+	if info.Mode().Perm()&0100 == 0 {
+		return fmt.Errorf("unsafe command %q: not executable by its owner", path)
+	}
+	return nil
+}

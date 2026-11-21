@@ -17,6 +17,10 @@ type TaskSource struct {
 	Key        string            `json:"key,omitempty"`
 	URL        string            `json:"url,omitempty"`
 	ReplySlack *SlackReplyTarget `json:"reply_slack,omitempty"`
+	// ReplyAdapter, when set, names the configured reply adapter that task
+	// reply runs instead of posting to Slack. A source has at most one of
+	// ReplySlack and ReplyAdapter.
+	ReplyAdapter string `json:"reply_adapter,omitempty"`
 }
 
 // SlackReplyTarget is a Slack channel and thread root timestamp. The
@@ -34,14 +38,14 @@ func ValidSlackReplyTarget(channel, threadTS string) bool {
 
 // taskSourceColumns are appended, in this order, to every task select that
 // LEFT JOINs task_sources as x. Scan them with taskSourceScan.
-const taskSourceColumns = `x.source_name,x.external_key,x.url,x.reply_channel_id,x.reply_thread_ts`
+const taskSourceColumns = `x.source_name,x.external_key,x.url,x.reply_channel_id,x.reply_thread_ts,x.reply_adapter`
 
 type taskSourceScan struct {
-	name, key, link, replyChannel, replyThread sql.NullString
+	name, key, link, replyChannel, replyThread, replyAdapter sql.NullString
 }
 
 func (x *taskSourceScan) dest() []any {
-	return []any{&x.name, &x.key, &x.link, &x.replyChannel, &x.replyThread}
+	return []any{&x.name, &x.key, &x.link, &x.replyChannel, &x.replyThread, &x.replyAdapter}
 }
 
 func (x *taskSourceScan) source() *TaskSource {
@@ -52,13 +56,14 @@ func (x *taskSourceScan) source() *TaskSource {
 	if x.replyChannel.Valid {
 		out.ReplySlack = &SlackReplyTarget{ChannelID: x.replyChannel.String, ThreadTS: x.replyThread.String}
 	}
+	out.ReplyAdapter = x.replyAdapter.String
 	return out
 }
 
 func validateTaskSource(src TaskSource) error {
 	if src.Name == "" {
-		if src.Key != "" || src.URL != "" || src.ReplySlack != nil {
-			return invalidInput("a task key, URL, or Slack reply target requires a source name")
+		if src.Key != "" || src.URL != "" || src.ReplySlack != nil || src.ReplyAdapter != "" {
+			return invalidInput("a task key, URL, Slack reply target, or reply adapter requires a source name")
 		}
 		return nil
 	}
@@ -73,6 +78,12 @@ func validateTaskSource(src TaskSource) error {
 	}
 	if src.ReplySlack != nil && !ValidSlackReplyTarget(src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS) {
 		return invalidInput("Slack reply target must be a C or G channel ID and a Slack thread timestamp")
+	}
+	if src.ReplyAdapter != "" && !task.ValidSourceName(src.ReplyAdapter) {
+		return invalidInput("reply adapter name must be 1 to 32 characters of a-z, 0-9 and -")
+	}
+	if src.ReplySlack != nil && src.ReplyAdapter != "" {
+		return invalidInput("a task has a Slack reply target or a reply adapter, not both")
 	}
 	return nil
 }
@@ -89,7 +100,7 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 		canonical = text
 	}
 	inputs := []string{canonical}
-	if src.Name != "" || src.Key != "" || src.URL != "" || src.ReplySlack != nil {
+	if src.Name != "" || src.Key != "" || src.URL != "" || src.ReplySlack != nil || src.ReplyAdapter != "" {
 		// Plain creates keep their original request hash, so a request ID
 		// recorded before named sources existed still replays.
 		inputs = append(inputs, "source", src.Name, src.Key, src.URL)
@@ -97,6 +108,9 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 	if src.ReplySlack != nil {
 		// Likewise, sources without a reply target keep their hash.
 		inputs = append(inputs, "reply_slack", src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS)
+	}
+	if src.ReplyAdapter != "" {
+		inputs = append(inputs, "reply_adapter", src.ReplyAdapter)
 	}
 	return s.mutate(ctx, request{"task.create", hash("task.create", inputs...)}, requestID, func(tx *sql.Tx, now int64) (MutationResult, error) {
 		if normalizeErr != nil {
@@ -131,7 +145,7 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 			if src.ReplySlack != nil {
 				replyChannel, replyThread = src.ReplySlack.ChannelID, src.ReplySlack.ThreadTS
 			}
-			if _, err = tx.ExecContext(ctx, "INSERT INTO task_sources(task_id,source_name,external_key,url,reply_channel_id,reply_thread_ts,created_at) VALUES(?,?,?,?,?,?,?)", id, src.Name, nullable(src.Key), nullable(src.URL), nullable(replyChannel), nullable(replyThread), now); err != nil {
+			if _, err = tx.ExecContext(ctx, "INSERT INTO task_sources(task_id,source_name,external_key,url,reply_channel_id,reply_thread_ts,reply_adapter,created_at) VALUES(?,?,?,?,?,?,?,?)", id, src.Name, nullable(src.Key), nullable(src.URL), nullable(replyChannel), nullable(replyThread), nullable(src.ReplyAdapter), now); err != nil {
 				return MutationResult{}, err
 			}
 		}
@@ -151,4 +165,18 @@ func (s *Store) GetTaskReplyTarget(ctx context.Context, selector string) (Task, 
 		return Task{}, SlackReplyTarget{}, ErrNotFound
 	}
 	return t, *t.Source.ReplySlack, nil
+}
+
+// GetTaskReplyAdapter resolves a task selector to a local task whose named
+// source names a reply adapter. It returns ErrNotFound when the task does not
+// exist or has no reply adapter.
+func (s *Store) GetTaskReplyAdapter(ctx context.Context, selector string) (Task, string, error) {
+	t, err := getTx(ctx, s.db, selector)
+	if err != nil {
+		return Task{}, "", err
+	}
+	if t.SourceKind != "local" || t.Source == nil || t.Source.ReplyAdapter == "" {
+		return Task{}, "", ErrNotFound
+	}
+	return t, t.Source.ReplyAdapter, nil
 }

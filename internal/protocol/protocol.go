@@ -50,9 +50,13 @@ const (
 	// target for a named source, task DTOs carry it, and task.reply posts to
 	// it for such a local task.
 	CapabilityTaskReplyTargets = "task_reply_targets_v1"
+	// CapabilityTaskReplyAdapters means task.create accepts a reply adapter
+	// name for a named source, task DTOs carry it, and task.reply runs the
+	// configured adapter for such a local task.
+	CapabilityTaskReplyAdapters = "task_reply_adapters_v1"
 )
 
-var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets}
+var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskReplyAdapters}
 
 var (
 	ErrEmptyFrame    = errors.New("protocol: empty frame")
@@ -155,6 +159,9 @@ type TaskCreateParams struct {
 	Key        string          `json:"key,omitempty"`
 	URL        string          `json:"url,omitempty"`
 	ReplySlack *SlackThreadDTO `json:"reply_slack,omitempty"`
+	// ReplyVia names a configured reply adapter for task.reply (requires
+	// task_reply_adapters_v1 and Source; not with ReplySlack).
+	ReplyVia string `json:"reply_via,omitempty"`
 }
 
 // SlackThreadDTO is a Slack channel and thread root timestamp in the active
@@ -181,9 +188,28 @@ type TaskReplyParams struct {
 	Done bool   `json:"done,omitempty"`
 }
 
+// TaskReplyDTO is a reply's outcome: Effect for a Slack reply, or
+// AdapterEffect for a reply delivered by a reply adapter, and the completed
+// task with --done.
 type TaskReplyDTO struct {
-	Effect SlackEffectDTO   `json:"effect"`
-	Task   *TaskMutationDTO `json:"task,omitempty"`
+	Effect        SlackEffectDTO         `json:"effect,omitzero"`
+	AdapterEffect *ReplyAdapterEffectDTO `json:"adapter_effect,omitempty"`
+	Task          *TaskMutationDTO       `json:"task,omitempty"`
+}
+
+// ReplyAdapterEffectDTO is a durable reply adapter run. It carries no reply
+// text and no adapter output.
+type ReplyAdapterEffectDTO struct {
+	EffectID       string  `json:"effect_id"`
+	RelatedTaskID  string  `json:"related_task_id"`
+	Adapter        string  `json:"adapter"`
+	State          string  `json:"state"`
+	AttemptCount   int     `json:"attempt_count"`
+	ExitCode       *int    `json:"exit_code,omitempty"`
+	DiagnosticCode string  `json:"diagnostic_code,omitempty"`
+	PreparedAt     string  `json:"prepared_at"`
+	SubmittedAt    *string `json:"submitted_at,omitempty"`
+	CompletedAt    *string `json:"completed_at,omitempty"`
 }
 type TaskListParams struct {
 	State       *string `json:"state,omitempty"`
@@ -230,10 +256,13 @@ type TaskContextThreadDTO struct {
 	DiagnosticCode string            `json:"diagnostic_code,omitempty"`
 }
 type TaskContextEffectsDTO struct {
-	LatestReply       *SlackEffectDTO  `json:"latest_reply,omitempty"`
-	NonConfirmed      []SlackEffectDTO `json:"non_confirmed"`
-	NonConfirmedCount int64            `json:"non_confirmed_count"`
-	Truncated         bool             `json:"effects_truncated"`
+	LatestReply *SlackEffectDTO `json:"latest_reply,omitempty"`
+	// LatestAdapterReply is the newest reply adapter run for a task whose
+	// source names a reply adapter.
+	LatestAdapterReply *ReplyAdapterEffectDTO `json:"latest_adapter_reply,omitempty"`
+	NonConfirmed       []SlackEffectDTO       `json:"non_confirmed"`
+	NonConfirmedCount  int64                  `json:"non_confirmed_count"`
+	Truncated          bool                   `json:"effects_truncated"`
 }
 type TaskContextDTO struct {
 	Task     TaskDTO               `json:"task"`
@@ -336,6 +365,7 @@ type TaskSourceDTO struct {
 	Key        string          `json:"key,omitempty"`
 	URL        string          `json:"url,omitempty"`
 	ReplySlack *SlackThreadDTO `json:"reply_slack,omitempty"`
+	ReplyVia   string          `json:"reply_via,omitempty"`
 }
 
 // SlackTaskActionsDTO is the durable recovery state for a Slack-origin task.
@@ -677,6 +707,9 @@ func ValidateParams(command string, raw json.RawMessage) error {
 		}
 		if p.ReplySlack != nil && (p.Source == "" || slackapi.ValidateThreadTarget(p.ReplySlack.ChannelID, p.ReplySlack.ThreadTS) != nil) {
 			return errors.New("invalid task reply target")
+		}
+		if p.ReplyVia != "" && (p.Source == "" || p.ReplySlack != nil || !task.ValidSourceName(p.ReplyVia)) {
+			return errors.New("invalid task reply adapter")
 		}
 	case *TaskSelector:
 		if !validTaskSelector(p.Task) {

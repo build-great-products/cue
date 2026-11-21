@@ -44,4 +44,8 @@ type Snapshot struct {
 	// Slack is the current operational state. It is populated by server without
 	// carrying tokens, headers, message bodies, or file bytes.
 	Slack any `json:"slack,omitempty"`
+	// ReplyAdapters counts configured reply adapters and their effects by
+	// state; EventHooks counts event hook deliveries since start.
+	ReplyAdapters any `json:"reply_adapters,omitempty"`
+	EventHooks    any `json:"event_hooks,omitempty"`
 }

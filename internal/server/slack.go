@@ -10,6 +10,7 @@ import (
 	"github.com/build-great-products/cue/internal/clock"
 	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/eventhooks"
 	"github.com/build-great-products/cue/internal/fileio"
 	"github.com/build-great-products/cue/internal/filetransfer"
 	"github.com/build-great-products/cue/internal/identity"
@@ -62,10 +63,21 @@ func (s *Server) prepareSlack(ctx context.Context, c config.Config, ledger *stor
 	}
 	var coordinator *slackingest.Coordinator
 	rt, err := slackruntime.New(slackruntime.Options{Factory: s.runtimeFactory, Handler: func(ctx context.Context, e slackapi.Envelope) error {
+		if e.Kind.Reaction() {
+			// A reaction is never admitted as work: it is only reported to
+			// event hooks, then acknowledged with no ledger record.
+			s.hooks.Notify(hookEvent(e))
+			return e.Ack.Acknowledge(ctx)
+		}
 		if coordinator == nil {
 			return errors.New("Slack admission coordinator is not ready")
 		}
 		result, handleErr := coordinator.Handle(ctx, e)
+		if handleErr == nil && result.AdmissionResult != store.SlackDuplicate && result.AdmissionResult != store.SlackMalformed {
+			// After the admission commit and acknowledgement, whatever the
+			// admission result: hooks see every message, not only work.
+			s.hooks.Notify(hookEvent(e))
+		}
 		if result.AdmissionResult == store.SlackAdmitted {
 			if reactionErr := s.queueTaskReaction(ctx, result.TaskID); reactionErr != nil && s.Log != nil {
 				s.Log.Warn("automatic queued-task reaction did not confirm", "task_id", result.TaskID, "task_version", result.TaskVersion, "error", reactionErr)
@@ -423,3 +435,10 @@ func (s *Server) resolveChannel(ctx context.Context, channel, taskSelector strin
 	return "", ErrChannelRequired
 }
 func jsonUnmarshal(b []byte, v any) error { return json.Unmarshal(b, v) }
+
+// hookEvent is the event hook view of a Socket Mode envelope: identifiers
+// only, never text or files.
+func hookEvent(e slackapi.Envelope) eventhooks.Event {
+	return eventhooks.Event{Kind: string(e.Kind), EventID: e.EventID, TeamID: e.TeamID, Channel: e.ChannelID,
+		TS: string(e.MessageTS), ThreadTS: string(e.ThreadTS), User: e.UserID, BotID: e.BotID, Reaction: e.Reaction}
+}

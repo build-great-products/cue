@@ -83,6 +83,12 @@ func renderHumanValue(out *bytes.Buffer, v any) {
 		renderMessageCard(out, m)
 	case m["slack"] != nil:
 		renderGatewayStatus(out, m)
+	case m["adapter_effect"] != nil:
+		renderRows(out, "Reply adapter effect", []any{m["adapter_effect"]}, []string{"effect_id", "adapter", "state", "related_task_id", "exit_code", "diagnostic_code"})
+		if task, ok := m["task"]; ok {
+			fmt.Fprintln(out, "Task:")
+			renderHumanValue(out, task)
+		}
 	case m["effect"] != nil:
 		renderHumanValue(out, m["effect"])
 		if task, ok := m["task"]; ok {
@@ -126,6 +132,13 @@ func renderTaskContext(out *bytes.Buffer, context map[string]any) {
 		if count := present(effects["non_confirmed_count"]); count != "" && count != "0" {
 			fmt.Fprintf(out, "Related effects requiring attention: %s\n", count)
 		}
+		if reply, ok := effects["latest_adapter_reply"].(map[string]any); ok {
+			fmt.Fprintf(out, "Latest adapter reply: %s via %s", present(reply["state"]), present(reply["adapter"]))
+			if code := present(reply["diagnostic_code"]); code != "" {
+				fmt.Fprintf(out, " (%s)", code)
+			}
+			fmt.Fprintln(out)
+		}
 	}
 }
 
@@ -150,6 +163,9 @@ func renderTaskCard(out *bytes.Buffer, task map[string]any) {
 		}
 		if reply, ok := origin["reply_slack"].(map[string]any); ok {
 			parts = append(parts, "reply="+present(reply["channel_id"])+":"+present(reply["thread_ts"]))
+		}
+		if via := present(origin["reply_via"]); via != "" {
+			parts = append(parts, "via="+via)
 		}
 		if len(parts) > 0 {
 			fmt.Fprintln(out, strings.Join(parts, "  "))

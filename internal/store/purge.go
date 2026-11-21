@@ -31,6 +31,7 @@ type PurgeCounts struct {
 	SlackSourceEvents      int64 `json:"slack_source_events"`
 	SlackTaskSources       int64 `json:"slack_task_sources"`
 	SlackEffects           int64 `json:"slack_effects"`
+	ReplyAdapterEffects    int64 `json:"reply_adapter_effects"`
 	Files                  int64 `json:"files"`
 	FileTemporaryTransfers int64 `json:"file_temporary_transfers"`
 	MutationRequests       int64 `json:"mutation_requests"`
@@ -208,12 +209,13 @@ func addCounts(dst *PurgeCounts, c PurgeCounts) {
 	dst.SlackSourceEvents += c.SlackSourceEvents
 	dst.SlackTaskSources += c.SlackTaskSources
 	dst.SlackEffects += c.SlackEffects
+	dst.ReplyAdapterEffects += c.ReplyAdapterEffects
 	dst.Files += c.Files
 	dst.FileTemporaryTransfers += c.FileTemporaryTransfers
 	dst.MutationRequests += c.MutationRequests
 }
 func (c PurgeCounts) total() int64 {
-	return c.Tasks + c.TaskStateEvents + c.SlackSourceEvents + c.SlackTaskSources + c.SlackEffects + c.Files + c.FileTemporaryTransfers + c.MutationRequests
+	return c.Tasks + c.TaskStateEvents + c.SlackSourceEvents + c.SlackTaskSources + c.SlackEffects + c.ReplyAdapterEffects + c.Files + c.FileTemporaryTransfers + c.MutationRequests
 }
 func skipLive(out *PurgeResult, c PurgeCounts) {
 	addCounts(&out.SkippedLive, c)
@@ -310,6 +312,15 @@ func purgeTask(ctx context.Context, q purgeConn, taskID string, cutoff int64, bu
 		skipReferenced(out, PurgeCounts{Tasks: 1})
 		return nil
 	}
+	// Likewise a reply adapter effect that is not confirmed before the
+	// cutoff is unresolved evidence and keeps its task.
+	if err := q.QueryRowContext(ctx, `SELECT count(*) FROM reply_adapter_effects WHERE related_task_id=? AND (state <> 'confirmed' OR completed_at_us >= ?)`, taskID, cutoff).Scan(&effects); err != nil {
+		return err
+	}
+	if effects != 0 {
+		skipReferenced(out, PurgeCounts{Tasks: 1})
+		return nil
+	}
 	// Files may be directly task-owned or owned through an outgoing upload
 	// effect. Temporary transfer rows represent private bytes managed outside
 	// this metadata-only operation, so retaining either owner is required.
@@ -343,7 +354,8 @@ func taskGraphCounts(ctx context.Context, q purgeConn, taskID string) (PurgeCoun
 		(SELECT count(*) FROM slack_source_events WHERE task_id=?),
 		(SELECT count(*) FROM slack_task_sources WHERE task_id=?),
 		(SELECT count(*) FROM slack_effects WHERE related_task_id=?),
-		(SELECT count(*) FROM files f WHERE f.related_task_id=? OR EXISTS (SELECT 1 FROM slack_effects e WHERE e.effect_id=f.related_effect_id AND e.related_task_id=?))`, taskID, taskID, taskID, taskID, taskID, taskID).Scan(&c.Tasks, &c.TaskStateEvents, &c.SlackSourceEvents, &c.SlackTaskSources, &c.SlackEffects, &c.Files)
+		(SELECT count(*) FROM reply_adapter_effects WHERE related_task_id=?),
+		(SELECT count(*) FROM files f WHERE f.related_task_id=? OR EXISTS (SELECT 1 FROM slack_effects e WHERE e.effect_id=f.related_effect_id AND e.related_task_id=?))`, taskID, taskID, taskID, taskID, taskID, taskID, taskID).Scan(&c.Tasks, &c.TaskStateEvents, &c.SlackSourceEvents, &c.SlackTaskSources, &c.SlackEffects, &c.ReplyAdapterEffects, &c.Files)
 	return c, err
 }
 
@@ -380,6 +392,11 @@ func deleteTaskGraph(ctx context.Context, q purgeConn, taskID string, out *Purge
 	}
 	if err := deleteEffectLeaves(ctx, q, "related_task_id=?", []any{taskID}, &out.Removed.SlackEffects); err != nil {
 		return err
+	}
+	if n, err := deleteCount(ctx, q, "DELETE FROM reply_adapter_effects WHERE related_task_id=?", taskID); err != nil {
+		return err
+	} else {
+		out.Removed.ReplyAdapterEffects += n
 	}
 	if n, err := deleteCount(ctx, q, "DELETE FROM tasks WHERE task_id=?", taskID); err != nil {
 		return err
