@@ -14,8 +14,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/slack-go/slack"
-	"github.com/stayradiated/mosscap/internal/slackapi"
 )
 
 const maxWebResponseBytes int64 = 16 << 20

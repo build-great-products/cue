@@ -14,8 +14,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/slack-go/slack"
-	"github.com/stayradiated/mosscap/internal/slackapi"
 )
 
 const (

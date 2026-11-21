@@ -4,7 +4,7 @@ import (
 	"errors"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 // SlackAdmissionResult is the durable outcome of one normalized Slack event.

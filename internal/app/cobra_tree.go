@@ -8,7 +8,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // CommandMetadata describes the read-only, capability, and handler properties
@@ -20,18 +20,18 @@ type CommandMetadata struct {
 }
 
 const (
-	annotationReadOnly   = "mosscap.read_only"
-	annotationCapability = "mosscap.gateway_capability"
-	annotationHandler    = "mosscap.handler"
+	annotationReadOnly   = "cue.read_only"
+	annotationCapability = "cue.gateway_capability"
+	annotationHandler    = "cue.handler"
 )
 
 // NewCommandTree returns the complete Cobra command tree that App.Execute runs.
 func (a App) NewCommandTree() *cobra.Command {
 	root := &cobra.Command{
-		Use:                        "mosscap",
-		Short:                      "Mosscap is a durable local work coordinator.",
-		Long:                       "Mosscap coordinates durable local tasks and explicit Slack operations.",
-		Example:                    "  mosscap task list\n  mosscap doctor",
+		Use:                        "cue",
+		Short:                      "Cue is a durable local work coordinator.",
+		Long:                       "Cue coordinates durable local tasks and explicit Slack operations.",
+		Example:                    "  cue task list\n  cue doctor",
 		SilenceUsage:               true,
 		SilenceErrors:              true,
 		SuggestionsMinimumDistance: 3,
@@ -44,15 +44,15 @@ func (a App) NewCommandTree() *cobra.Command {
 	root.CompletionOptions.DisableDefaultCmd = true
 	root.SetFlagErrorFunc(flagSuggestionError)
 	root.SetVersionTemplate("{{.Version}}\n")
-	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the Mosscap version.", Long: "Print the Mosscap version.", Example: "  mosscap version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
+	root.AddCommand(&cobra.Command{Use: "version", Short: "Print the Cue version.", Long: "Print the Cue version.", Example: "  cue version", Args: cobra.NoArgs, RunE: func(cmd *cobra.Command, _ []string) error {
 		_, err := fmt.Fprintln(cmd.OutOrStdout(), a.Version)
 		return err
 	}})
 	root.AddCommand(commandBranch("config", "Inspect or stage configuration."), commandBranch("gateway", "Run or inspect the local gateway."), commandBranch("task", "Manage durable tasks."), commandBranch("slack", "Read and operate in admitted Slack channels."), commandBranch("effect", "Inspect durable Slack effects."), commandBranch("file", "Inspect or retrieve admitted Slack files."))
 	findCommand(root, []string{"config"}).AddCommand(commandBranch("secret", "Manage private Slack credentials."))
-	root.AddCommand(a.cobraLeaf([]string{"setup"}, "Create private local configuration and state directories.", "mosscap setup [--json]", true, "", "setup", []flagSpec{boolFlag("json", "Render the result as JSON.")}, nil))
-	root.AddCommand(a.cobraLeaf([]string{"doctor"}, "Run non-destructive local and gateway diagnostics.", "mosscap doctor [--json]", true, protocol.CapabilityDoctor, "doctor", []flagSpec{boolFlag("json", "Render the report as JSON.")}, nil))
-	root.AddCommand(a.cobraLeaf([]string{"purge"}, "Preview or confirm irreversible metadata removal.", "mosscap purge --before RFC3339 (--dry-run|--confirm) [--request-id ID] [--json]", false, protocol.CapabilityMetadataPurge, "purge", []flagSpec{trackedStringFlag("before", "RFC3339 cutoff for eligible metadata."), trackedBoolFlag("dry-run", "Preview removal without changing state."), trackedBoolFlag("confirm", "Confirm irreversible removal."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"before"}))
+	root.AddCommand(a.cobraLeaf([]string{"setup"}, "Create private local configuration and state directories.", "cue setup [--json]", true, "", "setup", []flagSpec{boolFlag("json", "Render the result as JSON.")}, nil))
+	root.AddCommand(a.cobraLeaf([]string{"doctor"}, "Run non-destructive local and gateway diagnostics.", "cue doctor [--json]", true, protocol.CapabilityDoctor, "doctor", []flagSpec{boolFlag("json", "Render the report as JSON.")}, nil))
+	root.AddCommand(a.cobraLeaf([]string{"purge"}, "Preview or confirm irreversible metadata removal.", "cue purge --before RFC3339 (--dry-run|--confirm) [--request-id ID] [--json]", false, protocol.CapabilityMetadataPurge, "purge", []flagSpec{trackedStringFlag("before", "RFC3339 cutoff for eligible metadata."), trackedBoolFlag("dry-run", "Preview removal without changing state."), trackedBoolFlag("confirm", "Confirm irreversible removal."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"before"}))
 
 	for _, spec := range cobraLeafSpecs {
 		parent := findCommand(root, spec.path[:len(spec.path)-1])
@@ -93,7 +93,7 @@ func trackedBoolFlag(name, usage string) flagSpec {
 }
 
 func commandBranch(use, short string) *cobra.Command {
-	return &cobra.Command{Use: use, Short: short, Long: short, Example: "  mosscap " + use + " --help", Args: noArgsWithSuggestions, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
+	return &cobra.Command{Use: use, Short: short, Long: short, Example: "  cue " + use + " --help", Args: noArgsWithSuggestions, RunE: func(cmd *cobra.Command, _ []string) error { return cmd.Help() }}
 }
 
 func noArgsWithSuggestions(cmd *cobra.Command, args []string) error {
@@ -184,7 +184,7 @@ func findCommand(root *cobra.Command, path []string) *cobra.Command {
 }
 
 func (a App) cobraLeaf(path []string, short, use string, readOnly bool, capability, handler string, flags []flagSpec, required []string) *cobra.Command {
-	commandUse := strings.TrimPrefix(use, "mosscap ")
+	commandUse := strings.TrimPrefix(use, "cue ")
 	if len(path) > 1 {
 		commandUse = strings.TrimPrefix(commandUse, strings.Join(path[:len(path)-1], " ")+" ")
 	}
@@ -241,7 +241,7 @@ func (a App) cobraLeaf(path []string, short, use string, readOnly bool, capabili
 // Parsing and help stay side-effect free: this text is metadata only.
 func leafExample(use, handler string) string {
 	if handler == "task.reply" {
-		return "  mosscap task reply TASK --stdin --done <<'REPLY'\n  Your multiline reply\n  REPLY"
+		return "  cue task reply TASK --stdin --done <<'REPLY'\n  Your multiline reply\n  REPLY"
 	}
 	return "  " + use
 }
@@ -395,35 +395,35 @@ func expectedArgs(handler string) int {
 }
 
 var cobraLeafSpecs = []cobraLeafSpec{
-	{[]string{"config", "show"}, "Show the staged configuration with credentials redacted.", "mosscap config show [--json]", true, "", "config.show", []flagSpec{boolFlag("json", "Render the configuration as JSON.")}, nil},
-	{[]string{"config", "set"}, "Stage one validated non-secret configuration value.", "mosscap config set KEY VALUE [--json]", false, "", "config.set", []flagSpec{boolFlag("json", "Render the configuration as JSON.")}, nil},
-	{[]string{"config", "secret", "set"}, "Store a Slack credential from stdin or a controlling TTY.", "mosscap config secret set (slack_app_token|slack_bot_token) [--stdin]", false, "", "config.secret.set", []flagSpec{boolFlag("stdin", "Read the credential from non-terminal standard input.")}, nil},
-	{[]string{"gateway", "run"}, "Run the foreground local gateway.", "mosscap gateway run", false, "", "gateway.run", nil, nil},
-	{[]string{"gateway", "reload"}, "Validate and atomically activate staged configuration.", "mosscap gateway reload [--request-id ID] [--json]", false, "config_reload", "gateway.reload", []flagSpec{stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
-	{[]string{"gateway", "status"}, "Show local gateway status.", "mosscap gateway status [--json]", true, protocol.CapabilityStatus, "gateway.status", []flagSpec{boolFlag("json", "Render the status as JSON.")}, nil},
-	{[]string{"task", "create"}, "Create a local task.", "mosscap task create (--text TEXT|--text-file PATH|--stdin) [--request-id ID] [--json]", false, "local_tasks", "task.create", textFlags(), nil},
-	{[]string{"task", "list"}, "List durable tasks.", "mosscap task list [--state open|working|done|--all] [--limit N] [--cursor TASK_ID] [--json]", true, "local_tasks", "task.list", []flagSpec{stringFlag("state", "Filter by open, working, or done state."), boolFlag("all", "Include completed tasks."), intFlag("limit", "Maximum number of tasks."), stringFlag("cursor", "Resume after this task ID."), boolFlag("json", "Render the list as JSON.")}, nil},
-	{[]string{"task", "show"}, "Show current durable task state.", "mosscap task show TASK [--json]", true, "local_tasks", "task.show", []flagSpec{boolFlag("json", "Render the task as JSON.")}, nil},
-	{[]string{"task", "context"}, "Show durable task state with one bounded live Slack thread page.", "mosscap task context TASK [--thread-limit N] [--json]", true, protocol.CapabilityTaskContext, "task.context", []flagSpec{intFlag("thread-limit", "Maximum live thread messages (default 20; maximum 100)."), boolFlag("json", "Render the context as JSON.")}, nil},
-	{[]string{"task", "watch"}, "Stream task events to stdout, one line each, until interrupted.", "mosscap task watch [--since CURSOR|--cursor-file PATH] [--no-backlog] [--state-changes] [--interval DURATION] [--json]", true, protocol.CapabilityTaskChanges, "task.watch", []flagSpec{stringFlag("since", "Resume after this change cursor."), stringFlag("cursor-file", "Absolute path that stores the cursor; read at start and replaced after each event."), boolFlag("no-backlog", "Without a cursor, skip currently open tasks and stream only new changes."), boolFlag("state-changes", "Also emit transitions to working and done."), stringFlag("interval", "Gateway poll interval (default 1s; 100ms to 10s)."), boolFlag("json", "Emit one JSON object per line.")}, nil},
-	{[]string{"task", "update"}, "Replace a task's text.", "mosscap task update TASK (--text TEXT|--text-file PATH|--stdin) [--request-id ID] [--json]", false, "local_tasks", "task.update", textFlags(), nil},
-	{[]string{"task", "open"}, "Move a task to open.", "mosscap task open TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.open", transitionFlags(), nil},
-	{[]string{"task", "working"}, "Move a task to working.", "mosscap task working TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.working", transitionFlags(), nil},
-	{[]string{"task", "done"}, "Move a task to done.", "mosscap task done TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.done", transitionFlags(), nil},
-	{[]string{"task", "reply"}, "Reply to a Slack task, optionally completing it after confirmation.", "mosscap task reply TASK (--text TEXT|--text-file PATH|--stdin) [--done] [--request-id ID] [--json]", false, protocol.CapabilityTaskReply, "task.reply", append(textFlags(), boolFlag("done", "Complete only after Slack confirms the reply.")), nil},
-	{[]string{"slack", "history"}, "Read a page of recent messages from a Slack channel.", "mosscap slack history [--channel CHANNEL] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.history", []flagSpec{channelFlag(), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
-	{[]string{"slack", "thread"}, "Read a page of a Slack message thread.", "mosscap slack thread THREAD_TS [--channel CHANNEL|--task TASK] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.thread", []flagSpec{channelFlag(), stringFlag("task", "Slack task whose channel to read."), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
-	{[]string{"slack", "send"}, "Send a Slack message or threaded reply.", "mosscap slack send [--channel CHANNEL] [--thread THREAD_TS] (--text TEXT|--text-file PATH|--stdin) [--file PATH ...] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.send", append(textFlags(), channelFlag(), stringFlag("thread", "Reply thread timestamp."), stringFlag("task", "Related durable task; also the default channel."), repeatStringFlag("file", "Regular file to upload; repeatable.")), nil},
-	{[]string{"slack", "file"}, "Upload a file to a Slack channel or thread.", "mosscap slack file [--channel CHANNEL] [--thread THREAD_TS] --file PATH [--comment TEXT] [--task TASK] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "slack.file", []flagSpec{channelFlag(), stringFlag("thread", "Reply thread timestamp."), repeatStringFlag("file", "Regular file to upload."), stringFlag("comment", "Optional file comment."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"file"}},
-	{[]string{"slack", "edit"}, "Replace a Slack message's text.", "mosscap slack edit MESSAGE_TS [--channel CHANNEL] (--text TEXT|--text-file PATH|--stdin) [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.edit", append(textFlags(), channelFlag(), stringFlag("task", "Related durable task; also the default channel.")), nil},
-	{[]string{"slack", "delete"}, "Delete a Slack message with an audit reason.", "mosscap slack delete MESSAGE_TS --reason TEXT [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.delete", []flagSpec{channelFlag(), stringFlag("reason", "Required audit reason."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"reason"}},
-	{[]string{"slack", "react"}, "Add a reaction to a Slack message.", "mosscap slack react MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.react", taskMutationFlags(), nil},
-	{[]string{"slack", "unreact"}, "Remove a reaction from a Slack message.", "mosscap slack unreact MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.unreact", taskMutationFlags(), nil},
-	{[]string{"effect", "list"}, "List durable Slack effects.", "mosscap effect list [--state STATE] [--task TASK] [--limit N] [--cursor EFFECT_ID] [--json]", true, "slack_effects", "effect.list", []flagSpec{stringFlag("state", "Filter by effect state."), stringFlag("task", "Filter by related task."), intFlag("limit", "Maximum number of effects."), stringFlag("cursor", "Resume after this effect ID."), boolFlag("json", "Render effects as JSON.")}, nil},
-	{[]string{"effect", "inspect"}, "Inspect durable effect evidence.", "mosscap effect inspect EFFECT [--json]", true, "slack_effects", "effect.inspect", []flagSpec{boolFlag("json", "Render effect evidence as JSON.")}, nil},
-	{[]string{"effect", "retry"}, "Create a successor for a failed or explicitly confirmed risky effect.", "mosscap effect retry EFFECT --reason TEXT [--confirm-duplicate-risk] [--request-id ID] [--json]", false, "slack_effects", "effect.retry", []flagSpec{stringFlag("reason", "Required retry reason."), boolFlag("confirm-duplicate-risk", "Acknowledge duplicate risk for ambiguous effects."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"reason"}},
-	{[]string{"file", "show"}, "Show admitted Slack file metadata; use file get for bytes.", "mosscap file show FILE [--json]", true, "slack_source_metadata", "file.show", []flagSpec{boolFlag("json", "Render metadata as JSON.")}, nil},
-	{[]string{"file", "get"}, "Retrieve an admitted Slack file to a safe destination.", "mosscap file get FILE [--output PATH] [--force] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "file.get", []flagSpec{stringFlag("output", "Absolute destination path."), boolFlag("force", "Replace an existing regular destination file."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
+	{[]string{"config", "show"}, "Show the staged configuration with credentials redacted.", "cue config show [--json]", true, "", "config.show", []flagSpec{boolFlag("json", "Render the configuration as JSON.")}, nil},
+	{[]string{"config", "set"}, "Stage one validated non-secret configuration value.", "cue config set KEY VALUE [--json]", false, "", "config.set", []flagSpec{boolFlag("json", "Render the configuration as JSON.")}, nil},
+	{[]string{"config", "secret", "set"}, "Store a Slack credential from stdin or a controlling TTY.", "cue config secret set (slack_app_token|slack_bot_token) [--stdin]", false, "", "config.secret.set", []flagSpec{boolFlag("stdin", "Read the credential from non-terminal standard input.")}, nil},
+	{[]string{"gateway", "run"}, "Run the foreground local gateway.", "cue gateway run", false, "", "gateway.run", nil, nil},
+	{[]string{"gateway", "reload"}, "Validate and atomically activate staged configuration.", "cue gateway reload [--request-id ID] [--json]", false, "config_reload", "gateway.reload", []flagSpec{stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
+	{[]string{"gateway", "status"}, "Show local gateway status.", "cue gateway status [--json]", true, protocol.CapabilityStatus, "gateway.status", []flagSpec{boolFlag("json", "Render the status as JSON.")}, nil},
+	{[]string{"task", "create"}, "Create a local task.", "cue task create (--text TEXT|--text-file PATH|--stdin) [--request-id ID] [--json]", false, "local_tasks", "task.create", textFlags(), nil},
+	{[]string{"task", "list"}, "List durable tasks.", "cue task list [--state open|working|done|--all] [--limit N] [--cursor TASK_ID] [--json]", true, "local_tasks", "task.list", []flagSpec{stringFlag("state", "Filter by open, working, or done state."), boolFlag("all", "Include completed tasks."), intFlag("limit", "Maximum number of tasks."), stringFlag("cursor", "Resume after this task ID."), boolFlag("json", "Render the list as JSON.")}, nil},
+	{[]string{"task", "show"}, "Show current durable task state.", "cue task show TASK [--json]", true, "local_tasks", "task.show", []flagSpec{boolFlag("json", "Render the task as JSON.")}, nil},
+	{[]string{"task", "context"}, "Show durable task state with one bounded live Slack thread page.", "cue task context TASK [--thread-limit N] [--json]", true, protocol.CapabilityTaskContext, "task.context", []flagSpec{intFlag("thread-limit", "Maximum live thread messages (default 20; maximum 100)."), boolFlag("json", "Render the context as JSON.")}, nil},
+	{[]string{"task", "watch"}, "Stream task events to stdout, one line each, until interrupted.", "cue task watch [--since CURSOR|--cursor-file PATH] [--no-backlog] [--state-changes] [--interval DURATION] [--json]", true, protocol.CapabilityTaskChanges, "task.watch", []flagSpec{stringFlag("since", "Resume after this change cursor."), stringFlag("cursor-file", "Absolute path that stores the cursor; read at start and replaced after each event."), boolFlag("no-backlog", "Without a cursor, skip currently open tasks and stream only new changes."), boolFlag("state-changes", "Also emit transitions to working and done."), stringFlag("interval", "Gateway poll interval (default 1s; 100ms to 10s)."), boolFlag("json", "Emit one JSON object per line.")}, nil},
+	{[]string{"task", "update"}, "Replace a task's text.", "cue task update TASK (--text TEXT|--text-file PATH|--stdin) [--request-id ID] [--json]", false, "local_tasks", "task.update", textFlags(), nil},
+	{[]string{"task", "open"}, "Move a task to open.", "cue task open TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.open", transitionFlags(), nil},
+	{[]string{"task", "working"}, "Move a task to working.", "cue task working TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.working", transitionFlags(), nil},
+	{[]string{"task", "done"}, "Move a task to done.", "cue task done TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.done", transitionFlags(), nil},
+	{[]string{"task", "reply"}, "Reply to a Slack task, optionally completing it after confirmation.", "cue task reply TASK (--text TEXT|--text-file PATH|--stdin) [--done] [--request-id ID] [--json]", false, protocol.CapabilityTaskReply, "task.reply", append(textFlags(), boolFlag("done", "Complete only after Slack confirms the reply.")), nil},
+	{[]string{"slack", "history"}, "Read a page of recent messages from a Slack channel.", "cue slack history [--channel CHANNEL] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.history", []flagSpec{channelFlag(), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
+	{[]string{"slack", "thread"}, "Read a page of a Slack message thread.", "cue slack thread THREAD_TS [--channel CHANNEL|--task TASK] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.thread", []flagSpec{channelFlag(), stringFlag("task", "Slack task whose channel to read."), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
+	{[]string{"slack", "send"}, "Send a Slack message or threaded reply.", "cue slack send [--channel CHANNEL] [--thread THREAD_TS] (--text TEXT|--text-file PATH|--stdin) [--file PATH ...] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.send", append(textFlags(), channelFlag(), stringFlag("thread", "Reply thread timestamp."), stringFlag("task", "Related durable task; also the default channel."), repeatStringFlag("file", "Regular file to upload; repeatable.")), nil},
+	{[]string{"slack", "file"}, "Upload a file to a Slack channel or thread.", "cue slack file [--channel CHANNEL] [--thread THREAD_TS] --file PATH [--comment TEXT] [--task TASK] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "slack.file", []flagSpec{channelFlag(), stringFlag("thread", "Reply thread timestamp."), repeatStringFlag("file", "Regular file to upload."), stringFlag("comment", "Optional file comment."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"file"}},
+	{[]string{"slack", "edit"}, "Replace a Slack message's text.", "cue slack edit MESSAGE_TS [--channel CHANNEL] (--text TEXT|--text-file PATH|--stdin) [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.edit", append(textFlags(), channelFlag(), stringFlag("task", "Related durable task; also the default channel.")), nil},
+	{[]string{"slack", "delete"}, "Delete a Slack message with an audit reason.", "cue slack delete MESSAGE_TS --reason TEXT [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.delete", []flagSpec{channelFlag(), stringFlag("reason", "Required audit reason."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"reason"}},
+	{[]string{"slack", "react"}, "Add a reaction to a Slack message.", "cue slack react MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.react", taskMutationFlags(), nil},
+	{[]string{"slack", "unreact"}, "Remove a reaction from a Slack message.", "cue slack unreact MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.unreact", taskMutationFlags(), nil},
+	{[]string{"effect", "list"}, "List durable Slack effects.", "cue effect list [--state STATE] [--task TASK] [--limit N] [--cursor EFFECT_ID] [--json]", true, "slack_effects", "effect.list", []flagSpec{stringFlag("state", "Filter by effect state."), stringFlag("task", "Filter by related task."), intFlag("limit", "Maximum number of effects."), stringFlag("cursor", "Resume after this effect ID."), boolFlag("json", "Render effects as JSON.")}, nil},
+	{[]string{"effect", "inspect"}, "Inspect durable effect evidence.", "cue effect inspect EFFECT [--json]", true, "slack_effects", "effect.inspect", []flagSpec{boolFlag("json", "Render effect evidence as JSON.")}, nil},
+	{[]string{"effect", "retry"}, "Create a successor for a failed or explicitly confirmed risky effect.", "cue effect retry EFFECT --reason TEXT [--confirm-duplicate-risk] [--request-id ID] [--json]", false, "slack_effects", "effect.retry", []flagSpec{stringFlag("reason", "Required retry reason."), boolFlag("confirm-duplicate-risk", "Acknowledge duplicate risk for ambiguous effects."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"reason"}},
+	{[]string{"file", "show"}, "Show admitted Slack file metadata; use file get for bytes.", "cue file show FILE [--json]", true, "slack_source_metadata", "file.show", []flagSpec{boolFlag("json", "Render metadata as JSON.")}, nil},
+	{[]string{"file", "get"}, "Retrieve an admitted Slack file to a safe destination.", "cue file get FILE [--output PATH] [--force] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "file.get", []flagSpec{stringFlag("output", "Absolute destination path."), boolFlag("force", "Replace an existing regular destination file."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, nil},
 }
 
 func textFlags() []flagSpec {

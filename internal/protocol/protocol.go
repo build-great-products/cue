@@ -1,4 +1,4 @@
-// Package protocol defines Mosscap's version 1 local wire contract. Additive
+// Package protocol defines Cue's version 1 local wire contract. Additive
 // commands are negotiated through capabilities; clients must not send a
 // command whose capability was absent from hello.
 package protocol
@@ -16,8 +16,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 const Version = 1

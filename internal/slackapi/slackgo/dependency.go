@@ -1,8 +1,8 @@
-// Package slackgo implements Mosscap's SDK-free Slack contracts using the
+// Package slackgo implements Cue's SDK-free Slack contracts using the
 // pinned slack-go release and an owned Gorilla Socket Mode transport.
 package slackgo
 
-import "github.com/stayradiated/mosscap/internal/slackapi"
+import "github.com/build-great-products/cue/internal/slackapi"
 
 const sdkVersion = "v0.27.0"
 

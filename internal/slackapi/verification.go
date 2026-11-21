@@ -58,7 +58,7 @@ func Verify(ctx context.Context, web Web, request VerificationRequest) (Verifica
 	return result, nil
 }
 
-// VerifyChannel rejects every target on which Mosscap cannot safely perform
+// VerifyChannel rejects every target on which Cue cannot safely perform
 // its required history and mutation operations.
 func VerifyChannel(channel Channel) error {
 	if !channel.Accessible {

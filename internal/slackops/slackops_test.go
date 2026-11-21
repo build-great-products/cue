@@ -9,10 +9,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
-	"github.com/stayradiated/mosscap/internal/store"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/store"
 )
 
 var testTarget = store.SlackEffectTarget{TeamID: "T12345678", ChannelID: "C12345678"}

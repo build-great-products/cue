@@ -3,8 +3,8 @@ package app
 import (
 	"fmt"
 
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // effectTyped directly binds Cobra values to the recovery protocol requests.
@@ -53,7 +53,7 @@ func (a App) effectTyped(command, effect, state, task string, limit int, cursor,
 		out = map[string]any{"request_id": requestID, "effect": out}
 	}
 	if command == "list" {
-		continuation := "mosscap effect list"
+		continuation := "cue effect list"
 		if state != "" {
 			continuation += " --state " + shellQuote(state)
 		}

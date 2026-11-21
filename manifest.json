@@ -1,10 +1,10 @@
 {
   "display_information": {
-    "name": "Mosscap"
+    "name": "Cue"
   },
   "features": {
     "bot_user": {
-      "display_name": "Mosscap",
+      "display_name": "Cue",
       "always_online": false
     }
   },

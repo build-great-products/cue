@@ -4,8 +4,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
 )
 
 const (

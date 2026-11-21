@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func TestCobraTreeContainsEveryDocumentedLeafWithCutoverMetadata(t *testing.T) {
@@ -95,10 +95,10 @@ func TestCobraHelpAndHighConfidenceSuggestions(t *testing.T) {
 		wantUsage   string
 		wantSuggest string
 	}{
-		{[]string{"task", "udpate"}, "mosscap task", `Did you mean "update"?`},
-		{[]string{"task", "list", "--sttae", "open"}, "mosscap task list", "Did you mean --state?"},
+		{[]string{"task", "udpate"}, "cue task", `Did you mean "update"?`},
+		{[]string{"task", "list", "--sttae", "open"}, "cue task list", "Did you mean --state?"},
 		// Operands are never candidates for correction.
-		{[]string{"task", "show", "task-typo", "extra"}, "mosscap task show", ""},
+		{[]string{"task", "show", "task-typo", "extra"}, "cue task show", ""},
 	} {
 		var out, err bytes.Buffer
 		if exit := (App{Out: &out, Err: &err, Version: "test"}).Run(context.Background(), tc.args); exit != ExitUsage {
@@ -133,7 +133,7 @@ func TestRuntimeErrorsDoNotRenderUsageAndGatewayRunExplainsSetup(t *testing.T) {
 	}
 	out.Reset()
 	err.Reset()
-	if exit := (App{Out: &out, Err: &err, Version: "test"}).Run(context.Background(), []string{"gateway", "run"}); exit != ExitUnsafe || !strings.Contains(err.String(), "run mosscap setup") || strings.Contains(err.String(), "Usage:") {
+	if exit := (App{Out: &out, Err: &err, Version: "test"}).Run(context.Background(), []string{"gateway", "run"}); exit != ExitUnsafe || !strings.Contains(err.String(), "run cue setup") || strings.Contains(err.String(), "Usage:") {
 		t.Fatalf("gateway run exit=%d stdout=%q stderr=%q", exit, out.String(), err.String())
 	}
 }

@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
 )
 
 type factory struct {
@@ -32,7 +32,7 @@ func (f *factory) Build(config.Config) (slackapi.Web, slackapi.Socket, error) {
 }
 func validConfig(t *testing.T) config.Config {
 	t.Helper()
-	l := config.Location{Home: "/home/test", Path: "/home/test/.config/mosscap/config.toml", Paths: config.Paths{StateDir: "/home/test/.local/state/mosscap"}}
+	l := config.Location{Home: "/home/test", Path: "/home/test/.config/cue/config.toml", Paths: config.Paths{StateDir: "/home/test/.local/state/cue"}}
 	c, err := config.Default(l)
 	if err != nil {
 		t.Fatal(err)

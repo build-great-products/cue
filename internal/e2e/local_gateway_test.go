@@ -14,16 +14,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/server"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/server"
 	_ "modernc.org/sqlite"
 )
 
 func TestBuiltBinaryRestartReplayGate(t *testing.T) {
 	home := effectiveHome(t)
-	root, err := os.MkdirTemp(home, ".mosscap-local-")
+	root, err := os.MkdirTemp(home, ".cue-local-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -32,9 +32,9 @@ func TestBuiltBinaryRestartReplayGate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	binary := filepath.Join(t.TempDir(), "mosscap")
+	binary := filepath.Join(t.TempDir(), "cue")
 	source := sourceRoot(t)
-	build := exec.Command("go", "build", "-o", binary, "./cmd/mosscap")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/cue")
 	build.Dir = source
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build executable: %v\n%s", err, output)
@@ -49,7 +49,7 @@ func TestBuiltBinaryRestartReplayGate(t *testing.T) {
 		cmd.Env = env
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("mosscap %s: %v\n%s", strings.Join(args, " "), err, output)
+			t.Fatalf("cue %s: %v\n%s", strings.Join(args, " "), err, output)
 		}
 		return output
 	}
@@ -150,12 +150,12 @@ func TestBuiltBinaryRestartReplayGate(t *testing.T) {
 	// This uses only the public local wire protocol against the launched binary.
 	// A malformed staged file must yield a typed error while its running snapshot
 	// (and therefore its generation) remains unchanged.
-	configPath := filepath.Join(root, "config", "mosscap", "config.toml")
+	configPath := filepath.Join(root, "config", "cue", "config.toml")
 	validConfig, err := os.ReadFile(configPath)
 	if err != nil {
 		t.Fatal(err)
 	}
-	endpoint := filepath.Join(root, "state", "mosscap", "control.sock")
+	endpoint := filepath.Join(root, "state", "cue", "control.sock")
 	call := func(request protocol.Request) protocol.Response {
 		t.Helper()
 		cl, err := client.Dial(context.Background(), endpoint, 1<<20)
@@ -250,7 +250,7 @@ func TestBuiltBinaryRestartReplayGate(t *testing.T) {
 	}
 	stop(gateway)
 
-	db, err := sql.Open("sqlite", filepath.Join(root, "state", "mosscap", "mosscap.sqlite3"))
+	db, err := sql.Open("sqlite", filepath.Join(root, "state", "cue", "cue.sqlite3"))
 	if err != nil {
 		t.Fatal(err)
 	}

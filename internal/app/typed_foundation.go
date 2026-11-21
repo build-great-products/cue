@@ -10,12 +10,12 @@ import (
 	"os/signal"
 	"syscall"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/doctor"
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/server"
-	"github.com/stayradiated/mosscap/internal/slackruntime"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/server"
+	"github.com/build-great-products/cue/internal/slackruntime"
 )
 
 // The typed methods below are the Cobra entry points for setup, config, and
@@ -46,7 +46,7 @@ func (a App) configShowTyped(jsonOut bool) error {
 
 func (a App) configSetTyped(key, value string, jsonOut bool) error {
 	if key == "slack_app_token" || key == "slack_bot_token" {
-		return usage("Slack credentials must use `mosscap config secret set " + key + "`")
+		return usage("Slack credentials must use `cue config secret set " + key + "`")
 	}
 	loc, err := config.DefaultLocation()
 	if err != nil {
@@ -99,7 +99,7 @@ func (a App) gatewayRunTyped() (err error) {
 	c, err := config.Load(loc)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return &commandError{code: ExitUnsafe, message: "configuration is missing; run mosscap setup"}
+			return &commandError{code: ExitUnsafe, message: "configuration is missing; run cue setup"}
 		}
 		return err
 	}
@@ -162,7 +162,7 @@ func (a App) doctorTyped(jsonOut bool) error {
 	checks := localDoctorChecks(loc, c, configErr)
 	remoteResult, remoteErr := a.gatewayCall(c, "doctor.run", "req_doctor", nil, "")
 	if remoteErr != nil {
-		checks = append(checks, doctor.Check{Name: "gateway_diagnostics", Status: doctor.Skipped, Message: "gateway diagnostics unavailable", Action: "start mosscap gateway run"})
+		checks = append(checks, doctor.Check{Name: "gateway_diagnostics", Status: doctor.Skipped, Message: "gateway diagnostics unavailable", Action: "start cue gateway run"})
 		report := doctor.Report{Overall: doctor.Overall(checks), Checks: checks}
 		if !jsonOut {
 			if err := a.renderDoctor(report, false); err != nil {

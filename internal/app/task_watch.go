@@ -16,9 +16,9 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 const (
@@ -135,7 +135,7 @@ func (w *taskWatcher) run(ctx context.Context) error {
 			return err
 		}
 		w.disconnected = true
-		fmt.Fprintf(w.app.Err, "mosscap task watch: gateway unavailable (%v); reconnecting in %s\n", err, backoff)
+		fmt.Fprintf(w.app.Err, "cue task watch: gateway unavailable (%v); reconnecting in %s\n", err, backoff)
 		if sleepContext(ctx, backoff) != nil {
 			return nil
 		}
@@ -186,7 +186,7 @@ func (w *taskWatcher) session(ctx context.Context, connected func()) error {
 	}
 	connected()
 	if w.disconnected {
-		fmt.Fprintln(w.app.Err, "mosscap task watch: reconnected to gateway")
+		fmt.Fprintln(w.app.Err, "cue task watch: reconnected to gateway")
 		w.disconnected = false
 	}
 	for {
@@ -281,7 +281,7 @@ func (w *taskWatcher) saveCursor() error {
 		return nil
 	}
 	dir := filepath.Dir(w.opts.cursorFile)
-	f, err := os.CreateTemp(dir, ".mosscap-watch-cursor-*")
+	f, err := os.CreateTemp(dir, ".cue-watch-cursor-*")
 	if err != nil {
 		return &commandError{code: ExitUnsafe, message: "write --cursor-file: " + err.Error()}
 	}

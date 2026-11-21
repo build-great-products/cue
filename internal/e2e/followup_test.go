@@ -5,8 +5,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
 )
 
 func threadMessage(id, kind, channel, ts, threadTS, user, text string) (slackapi.Envelope, *fake.AckRecorder) {

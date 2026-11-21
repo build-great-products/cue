@@ -13,8 +13,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/clock"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/clock"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 func testStore(t *testing.T) *Store {

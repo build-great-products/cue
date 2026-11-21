@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func validFileTransferResult(c config.Config, transfer protocol.FileGetDTO) bool {

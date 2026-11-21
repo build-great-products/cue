@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func TestJSONMutationErrorPreservesProtocolFields(t *testing.T) {

@@ -6,7 +6,7 @@ import (
 )
 
 func TestValidateSlackProductionRequiresCredentials(t *testing.T) {
-	loc := Location{Home: "/home/test", Path: "/home/test/.config/mosscap/config.toml", Paths: Paths{StateDir: "/home/test/.local/state/mosscap"}}
+	loc := Location{Home: "/home/test", Path: "/home/test/.config/cue/config.toml", Paths: Paths{StateDir: "/home/test/.local/state/cue"}}
 	base, err := Default(loc)
 	if err != nil {
 		t.Fatal(err)

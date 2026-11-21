@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func TestTaskWatchTextIsOneReversibleLine(t *testing.T) {

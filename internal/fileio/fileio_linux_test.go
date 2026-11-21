@@ -357,7 +357,7 @@ func TestPlaceOutputExclusiveForceAndCleanup(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, entry := range entries {
-		if strings.HasPrefix(entry.Name(), ".mosscap-output-") {
+		if strings.HasPrefix(entry.Name(), ".cue-output-") {
 			t.Fatalf("staging residue %q", entry.Name())
 		}
 	}

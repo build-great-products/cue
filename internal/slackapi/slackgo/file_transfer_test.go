@@ -14,7 +14,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 type transferDoer struct {

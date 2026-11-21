@@ -8,7 +8,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 // Operation names one Web contract method.

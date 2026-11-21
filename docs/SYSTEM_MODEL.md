@@ -1,10 +1,10 @@
-# Mosscap system model
+# Cue system model
 
 ## Product rule
 
 **Keep coordination durable; keep the agent separate.**
 
-Mosscap is a durable inbox and Slack interface for a long-running agent session, such as Claude Code. The agent runs on its own: a person or a supervisor starts it, chooses its model and working directory, and decides when it stops. The agent receives work by following `mosscap task watch` and acts through ordinary CLI commands. Mosscap never starts, prompts, or supervises it.
+Cue is a durable inbox and Slack interface for a long-running agent session, such as Claude Code. The agent runs on its own: a person or a supervisor starts it, chooses its model and working directory, and decides when it stops. The agent receives work by following `cue task watch` and acts through ordinary CLI commands. Cue never starts, prompts, or supervises it.
 
 ## Components and authority
 
@@ -14,7 +14,7 @@ Slack ───────┐
 CLI ─────────┘              │
                             │ private Unix-socket protocol
                             ▼
-                     mosscap task watch
+                     cue task watch
                             │
                             ▼
                       agent session
@@ -22,7 +22,7 @@ CLI ─────────┘              │
 
 ### Go executable
 
-The `mosscap` executable has two roles:
+The `cue` executable has two roles:
 
 - The foreground **gateway** connects to Slack, owns SQLite, admits work, executes recorded Slack operations, manages temporary transfers, and serves the local protocol.
 - Short-lived **CLI** commands perform setup or ask the gateway to read and mutate state. Normal CLI operation never writes SQLite directly. `task watch` is the one long-running CLI command.
@@ -33,7 +33,7 @@ SQLite is authoritative for tasks, Slack source deduplication, Slack effect inte
 
 ### Task watchers
 
-`mosscap task watch` is how work reaches an agent, for example Claude Code running it under a background monitor. It is an ordinary CLI client that polls the `task.changes` read over the local protocol and prints one line per selected task change.
+`cue task watch` is how work reaches an agent, for example Claude Code running it under a background monitor. It is an ordinary CLI client that polls the `task.changes` read over the local protocol and prints one line per selected task change.
 
 SQLite triggers stamp every task creation, content-version change, and state change with the next value of a durable counter in the same transaction, so the counter orders changes exactly as they committed and is never reused after purge. The watcher's cursor is that counter. Because only each task's latest change is kept, a watcher that falls behind sees coalesced current snapshots rather than a history.
 
@@ -41,7 +41,7 @@ A watcher writes nothing: printing a line proves nothing about what an agent did
 
 ### Slack
 
-Mosscap serves one workspace and every channel its bot is a member of; channel membership is the only channel control. Workspace and bot identity are derived from Slack authentication. Every human member of the workspace may send work: a message is admitted when it directly mentions the bot, or replies, without a mention, in a thread the bot already tracks (one holding an admitted task, or one the bot posted in). Such a follow-up is its own task linked to the thread and to the thread's original task, so each reply is a separate unit of work and no earlier text is overwritten. The one sender guard is workspace membership: a Slack Connect external user, whose event names another workspace, is ignored. Each task, effect, and watch line carries its channel, and every Slack command names one channel (explicitly, or from its task).
+Cue serves one workspace and every channel its bot is a member of; channel membership is the only channel control. Workspace and bot identity are derived from Slack authentication. Every human member of the workspace may send work: a message is admitted when it directly mentions the bot, or replies, without a mention, in a thread the bot already tracks (one holding an admitted task, or one the bot posted in). Such a follow-up is its own task linked to the thread and to the thread's original task, so each reply is a separate unit of work and no earlier text is overwritten. The one sender guard is workspace membership: a Slack Connect external user, whose event names another workspace, is ignored. Each task, effect, and watch line carries its channel, and every Slack command names one channel (explicitly, or from its task).
 
 Slack reads and writes are explicit. Each write records a durable intent before network submission. Slack content and task state are independent, except for the explicit `task reply --done` composition, which marks done only after a confirmed reply.
 
@@ -85,13 +85,13 @@ prepared → submitted → confirmed
                        └────→ ambiguous
 ```
 
-A conclusive rejection is `failed`. A timeout, cancellation, or disconnect after submission is `ambiguous`; Mosscap never retries it automatically. The terminal post-submission commit uses a cancellation-detached context, so loss of the client cannot erase this evidence. Explicit retry creates a linked new effect and, after ambiguity, requires duplicate-risk confirmation.
+A conclusive rejection is `failed`. A timeout, cancellation, or disconnect after submission is `ambiguous`; Cue never retries it automatically. The terminal post-submission commit uses a cancellation-detached context, so loss of the client cannot erase this evidence. Explicit retry creates a linked new effect and, after ambiguity, requires duplicate-risk confirmation.
 
 ## Files and retention
 
-Mosscap stores durable file identity, metadata, hashes when known, and transfer outcomes, not durable file bytes. Incoming bytes are fetched only by `file get`. Outgoing bytes are validated and uploaded from regular files. Temporary bytes live under the private state root and may expire independently of durable metadata.
+Cue stores durable file identity, metadata, hashes when known, and transfer outcomes, not durable file bytes. Incoming bytes are fetched only by `file get`. Outgoing bytes are validated and uploaded from regular files. Temporary bytes live under the private state root and may expire independently of durable metadata.
 
-Durable metadata is not deleted automatically. `mosscap purge` requires an absolute cutoff and exactly one of dry-run or confirmation, and preserves live tasks and unresolved effect evidence.
+Durable metadata is not deleted automatically. `cue purge` requires an absolute cutoff and exactly one of dry-run or confirmation, and preserves live tasks and unresolved effect evidence.
 
 ## Security boundary
 
@@ -101,4 +101,4 @@ Tokens and authorization headers must not enter SQLite, protocol results, or log
 
 ## Non-goals
 
-Mosscap does not start, prompt, or supervise an agent, run headless agent pools, infer task state from conversation, retain historical task text, automatically retry uncertain external actions, permanently archive transferred bytes, support more than one Slack workspace or direct messages, or claim end-to-end exactly-once execution.
+Cue does not start, prompt, or supervise an agent, run headless agent pools, infer task state from conversation, retain historical task text, automatically retry uncertain external actions, permanently archive transferred bytes, support more than one Slack workspace or direct messages, or claim end-to-end exactly-once execution.

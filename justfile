@@ -1,4 +1,4 @@
-# Common development tasks for Mosscap.
+# Common development tasks for Cue.
 
 default:
     @just --list
@@ -24,12 +24,12 @@ check: fmt-check test vet
 
 # Build the CLI binary.
 build:
-    go build -o bin/mosscap ./cmd/mosscap
+    go build -o bin/cue ./cmd/cue
 
 # Install the CLI binary to Go's configured binary directory.
 install:
-    go install ./cmd/mosscap
+    go install ./cmd/cue
 
-# Run Mosscap, forwarding any arguments (for example: just run -- --help).
+# Run Cue, forwarding any arguments (for example: just run -- --help).
 run *args:
-    go run ./cmd/mosscap {{args}}
+    go run ./cmd/cue {{args}}

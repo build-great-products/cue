@@ -13,16 +13,16 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/filetransfer"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
-	"github.com/stayradiated/mosscap/internal/slackruntime"
-	"github.com/stayradiated/mosscap/internal/store"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/filetransfer"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/slackruntime"
+	"github.com/build-great-products/cue/internal/store"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 func testConfig(paths config.Paths) config.Config {
@@ -35,7 +35,7 @@ func newTestServer(t *testing.T, c config.Config) *Server {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-server-config-")
+	root, err := os.MkdirTemp(home, ".cue-server-config-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -64,7 +64,7 @@ func TestMetadataPurgeGenericAfterDeleteFailureMapsToRetriableZeroProgress(t *te
 }
 
 func TestMetadataPurgeRouteDryRunDoesNotWriteRequest(t *testing.T) {
-	db, err := store.Initialize(context.Background(), filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	db, err := store.Initialize(context.Background(), filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestReloadIsFailureAtomicAndUsesImmutableSnapshots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-reload-")
+	root, err := os.MkdirTemp(home, ".cue-reload-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -254,7 +254,7 @@ func transitionAndProject(t *testing.T, s *Server, ledger *store.Store, requestI
 
 func TestSlackTaskReactionLifecycleUsesDurableOrderedEffects(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -293,7 +293,7 @@ func TestSlackTaskReactionLifecycleUsesDurableOrderedEffects(t *testing.T) {
 
 func TestTaskReactionRecoveryDoesNotRemoveQueueWhenWorkingAddFails(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -340,7 +340,7 @@ func TestTaskReactionRecoveryDoesNotRemoveQueueWhenWorkingAddFails(t *testing.T)
 
 func TestTaskReactionProjectionSkipsLocalAndUntransitionedTasks(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -373,7 +373,7 @@ func TestTaskReactionProjectionSkipsLocalAndUntransitionedTasks(t *testing.T) {
 
 func TestReopenedSlackTaskRestoresQueuedReactionEachCycle(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -414,7 +414,7 @@ func TestReopenedSlackTaskRestoresQueuedReactionEachCycle(t *testing.T) {
 
 func TestTaskReplyConfirmedSuccessReplaysAndConsumesReplyRequestID(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -505,7 +505,7 @@ func TestTaskReplyTerminalSlackOutcomesDoNotCloseTask(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			ctx := context.Background()
-			ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+			ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -529,7 +529,7 @@ func TestTaskReplyTerminalSlackOutcomesDoNotCloseTask(t *testing.T) {
 
 func TestTaskReplyRecoversConfirmedEffectWithoutGateway(t *testing.T) {
 	ctx := context.Background()
-	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "mosscap.db"), store.Options{})
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -576,7 +576,7 @@ func TestSlackReloadRetainsFailedCandidateThenSwapsAndDrains(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-slack-reload-")
+	root, err := os.MkdirTemp(home, ".cue-slack-reload-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -695,7 +695,7 @@ func TestReloadAppliesSQLiteBusyTimeoutWithoutStoringTokens(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-busy-reload-")
+	root, err := os.MkdirTemp(home, ".cue-busy-reload-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -809,7 +809,7 @@ func TestFileTransferStatusUsesDescriptorChecksForTemporarySafety(t *testing.T) 
 		{name: "private regular file", wantUnsafe: 0},
 		{name: "hard link", wantUnsafe: 1, makeUnsafe: func(t *testing.T, tmp *fileio.TempFile) {
 			t.Helper()
-			link := filepath.Join("/home/admin", "mosscap-temporary-status-link-"+filepath.Base(tmp.Path))
+			link := filepath.Join("/home/admin", "cue-temporary-status-link-"+filepath.Base(tmp.Path))
 			t.Cleanup(func() { _ = os.Remove(link) })
 			if err := os.Link(tmp.Path, link); err != nil {
 				t.Fatal(err)
@@ -832,7 +832,7 @@ func TestFileTransferStatusUsesDescriptorChecksForTemporarySafety(t *testing.T) 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			ctx := context.Background()
-			root, err := os.MkdirTemp("/home/admin", "mosscap-temporary-status-")
+			root, err := os.MkdirTemp("/home/admin", "cue-temporary-status-")
 			if err != nil {
 				t.Skipf("cannot create private test tree: %v", err)
 			}
@@ -912,7 +912,7 @@ func TestGatewayStartupRejectsUnsafeConfigAncestors(t *testing.T) {
 		}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			root, err := os.MkdirTemp(home, ".mosscap-config-ancestor-")
+			root, err := os.MkdirTemp(home, ".cue-config-ancestor-")
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -980,7 +980,7 @@ func TestGatewayStartupRejectsReplacedIntermediateComponent(t *testing.T) {
 }
 
 func TestShutdownLeavesReplacementSocketUntouched(t *testing.T) {
-	root, err := os.MkdirTemp("/home/admin", "mosscap-server-")
+	root, err := os.MkdirTemp("/home/admin", "cue-server-")
 	if err != nil {
 		t.Skipf("cannot create private test tree: %v", err)
 	}
@@ -1032,7 +1032,7 @@ func TestShutdownLeavesReplacementSocketUntouched(t *testing.T) {
 }
 
 func TestUnsupportedProtocolGetsOneTypedResponseThenClose(t *testing.T) {
-	root, err := os.MkdirTemp("/home/admin", "mosscap-server-")
+	root, err := os.MkdirTemp("/home/admin", "cue-server-")
 	if err != nil {
 		t.Skipf("cannot create private test tree: %v", err)
 	}
@@ -1087,7 +1087,7 @@ func TestUnsupportedProtocolGetsOneTypedResponseThenClose(t *testing.T) {
 }
 
 func TestRestartReplaysOneDurableCreate(t *testing.T) {
-	root, err := os.MkdirTemp("/home/admin", "mosscap-server-")
+	root, err := os.MkdirTemp("/home/admin", "cue-server-")
 	if err != nil {
 		t.Skipf("cannot create private test tree: %v", err)
 	}

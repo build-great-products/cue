@@ -10,11 +10,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/doctor"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func TestHelpAtEveryCommandNode(t *testing.T) {
@@ -147,7 +147,7 @@ func TestSecretCredentialEntryRejectsArgvAndWritesOnlyViaStdin(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-secret-test-")
+	root, err := os.MkdirTemp(home, ".cue-secret-test-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -202,7 +202,7 @@ func TestSecretCredentialInputBoundsAndFieldValidation(t *testing.T) {
 
 func TestAlternateConfigPathIsNotAuthority(t *testing.T) {
 	var stdout, stderr bytes.Buffer
-	got := (App{Out: &stdout, Err: &stderr}).Run(context.Background(), []string{"--config", "/tmp/mosscap.toml", "task", "--help"})
+	got := (App{Out: &stdout, Err: &stderr}).Run(context.Background(), []string{"--config", "/tmp/cue.toml", "task", "--help"})
 	if got != ExitUsage || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unknown flag") {
 		t.Fatalf("alternate config path: exit=%d stdout=%q stderr=%q", got, stdout.String(), stderr.String())
 	}
@@ -225,7 +225,7 @@ func TestVersionAndGatewayRunRequiresSetup(t *testing.T) {
 	if got := a.Run(context.Background(), []string{"gateway", "run"}); got != ExitUnsafe {
 		t.Fatalf("gateway run exit = %d, want %d", got, ExitUnsafe)
 	}
-	if !strings.Contains(stderr.String(), "run mosscap setup") {
+	if !strings.Contains(stderr.String(), "run cue setup") {
 		t.Fatalf("gateway stderr = %q", stderr.String())
 	}
 }
@@ -280,12 +280,12 @@ func TestFileOutputAndPathExitMappings(t *testing.T) {
 	if err != nil || len(paths) != 1 || !strings.HasPrefix(paths[0], "/") {
 		t.Fatalf("absolutePaths = %q, %v", paths, err)
 	}
-	transfer := protocol.FileGetDTO{TransferID: "xfr_AbCdEfGhIjKlMnOpQrStUv", FileID: "fil_AbCdEfGhIjKlMnOpQrStUv", TemporaryPath: "/tmp/mosscap/mosscap-xfr-" + strings.Repeat("a", 32), ValidatedSizeBytes: 1, SHA256: strings.Repeat("a", 64), ExpiresAt: "2026-01-01T00:00:00Z"}
-	if !validFileTransferResult(config.Config{Paths: config.Paths{TmpDir: "/tmp/mosscap"}}, transfer) {
+	transfer := protocol.FileGetDTO{TransferID: "xfr_AbCdEfGhIjKlMnOpQrStUv", FileID: "fil_AbCdEfGhIjKlMnOpQrStUv", TemporaryPath: "/tmp/cue/mosscap-xfr-" + strings.Repeat("a", 32), ValidatedSizeBytes: 1, SHA256: strings.Repeat("a", 64), ExpiresAt: "2026-01-01T00:00:00Z"}
+	if !validFileTransferResult(config.Config{Paths: config.Paths{TmpDir: "/tmp/cue"}}, transfer) {
 		t.Fatal("valid transfer result rejected")
 	}
 	transfer.TemporaryPath = "/tmp/other/mosscap-xfr-" + strings.Repeat("a", 32)
-	if validFileTransferResult(config.Config{Paths: config.Paths{TmpDir: "/tmp/mosscap"}}, transfer) {
+	if validFileTransferResult(config.Config{Paths: config.Paths{TmpDir: "/tmp/cue"}}, transfer) {
 		t.Fatal("transfer outside configured tmp accepted")
 	}
 }

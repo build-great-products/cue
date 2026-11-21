@@ -13,8 +13,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 // SlackEffectKind identifies one durable Slack mutation intent.

@@ -1,7 +1,7 @@
-// Package slackapi defines Mosscap-owned Slack contracts and values.
+// Package slackapi defines Cue-owned Slack contracts and values.
 //
 // SDK-specific types belong in adapter packages such as slackapi/slackgo. The
-// rest of Mosscap depends only on this package.
+// rest of Cue depends only on this package.
 package slackapi
 
 // EventKind is a normalized Slack event understood by Slack ingestion.

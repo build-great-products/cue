@@ -6,9 +6,9 @@ import (
 	"encoding/hex"
 	"strconv"
 
-	"github.com/stayradiated/mosscap/internal/slackops"
-	"github.com/stayradiated/mosscap/internal/store"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/slackops"
+	"github.com/build-great-products/cue/internal/store"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 const (
@@ -83,7 +83,7 @@ func (s *Server) executeTaskReaction(ctx context.Context, source store.SlackSour
 }
 
 func taskReactionRequestID(stage, taskID string, version int64) string {
-	sum := sha256.Sum256([]byte("mosscap.task-reaction.v1\x00" + stage + "\x00" + taskID + "\x00" + strconv.FormatInt(version, 10)))
+	sum := sha256.Sum256([]byte("cue.task-reaction.v1\x00" + stage + "\x00" + taskID + "\x00" + strconv.FormatInt(version, 10)))
 	return "internal-task-reaction-" + hex.EncodeToString(sum[:])
 }
 

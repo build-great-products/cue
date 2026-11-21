@@ -11,9 +11,9 @@ import (
 	"sync"
 	"unicode/utf8"
 
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/store"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/store"
 )
 
 const maxUploadFiles = 20

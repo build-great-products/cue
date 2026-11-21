@@ -12,7 +12,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/identity"
+	"github.com/build-great-products/cue/internal/identity"
 )
 
 const (

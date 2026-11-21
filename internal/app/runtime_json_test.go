@@ -8,8 +8,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/build-great-products/cue/internal/doctor"
 	"github.com/spf13/cobra"
-	"github.com/stayradiated/mosscap/internal/doctor"
 )
 
 type runtimeJSONGolden struct {

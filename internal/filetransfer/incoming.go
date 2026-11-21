@@ -18,11 +18,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/clock"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/store"
+	"github.com/build-great-products/cue/internal/clock"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/store"
 )
 
 var (

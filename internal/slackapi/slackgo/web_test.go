@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 func TestValidateCursorRejectsWhitespaceAndControls(t *testing.T) {

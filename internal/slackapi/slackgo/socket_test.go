@@ -9,9 +9,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
-	"github.com/stayradiated/mosscap/internal/slackapi"
 )
 
 func TestNormalizeForwardedAttachments(t *testing.T) {

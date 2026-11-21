@@ -8,9 +8,9 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/slackgo"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/slackgo"
 )
 
 var ErrClosed = errors.New("Slack runtime is closed")

@@ -43,7 +43,7 @@ func (s Scope) Valid() bool {
 	return true
 }
 
-// RequiredBotScopes returns the exact bot-scope set. Mosscap admits work from
+// RequiredBotScopes returns the exact bot-scope set. Cue admits work from
 // every public and private channel the bot is a member of, so both channel
 // families are required. Socket Mode's app-level connections:write scope is
 // verified separately because it belongs to a different token.

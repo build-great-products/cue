@@ -102,7 +102,7 @@ type ExternalError struct {
 // VerificationDiagnostic is the bounded, actionable result of a failed
 // startup authority check. It deliberately contains no configured IDs, token,
 // response body, or display name. MissingScopes is populated only for
-// DiagnosticMissingScope and only with Mosscap's allowlisted bot scopes.
+// DiagnosticMissingScope and only with Cue's allowlisted bot scopes.
 type VerificationDiagnostic struct {
 	Code          DiagnosticCode
 	MissingScopes []Scope

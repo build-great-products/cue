@@ -1,11 +1,11 @@
-// Command mosscap is the Mosscap process entry point.
+// Command cue is the Cue process entry point.
 package main
 
 import (
 	"context"
 	"os"
 
-	"github.com/stayradiated/mosscap/internal/app"
+	"github.com/build-great-products/cue/internal/app"
 )
 
 // version is replaced at build time with: -ldflags "-X main.version=<version>".

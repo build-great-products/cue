@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func TestHelloThenCall(t *testing.T) {

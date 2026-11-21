@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 const DefaultMaxFrameBytes = 1048576

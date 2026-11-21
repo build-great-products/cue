@@ -15,11 +15,11 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/gorilla/websocket"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
-	"github.com/stayradiated/mosscap/internal/slackapi"
 )
 
 const (

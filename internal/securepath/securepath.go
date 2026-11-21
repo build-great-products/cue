@@ -1,4 +1,4 @@
-// Package securepath validates and creates Mosscap's owner-private paths.
+// Package securepath validates and creates Cue's owner-private paths.
 package securepath
 
 import (

@@ -50,7 +50,7 @@ func (f Fixed) Now() time.Time { return UTC(f.Time) }
 // Manual is a deterministic clock and sleeper for concurrent tests. Sleepers
 // wake only when Advance or Set reaches their deadline. It keeps exact virtual
 // time internally so repeated sub-microsecond advances are not discarded;
-// Now still exposes Mosscap's microsecond precision.
+// Now still exposes Cue's microsecond precision.
 type Manual struct {
 	mu       sync.Mutex
 	now      time.Time
@@ -68,7 +68,7 @@ func NewManual(start time.Time) *Manual {
 	return &Manual{now: start.UTC(), sleepers: make(map[uint64]manualSleeper)}
 }
 
-// Now returns the current manual time at Mosscap's microsecond precision.
+// Now returns the current manual time at Cue's microsecond precision.
 func (m *Manual) Now() time.Time {
 	m.mu.Lock()
 	defer m.mu.Unlock()
@@ -141,11 +141,11 @@ func (m *Manual) PendingSleepers() int {
 	return len(m.sleepers)
 }
 
-// UTC converts t to UTC and truncates it to the precision stored by Mosscap.
+// UTC converts t to UTC and truncates it to the precision stored by Cue.
 func UTC(t time.Time) time.Time { return t.UTC().Truncate(time.Microsecond) }
 
 // UnixMicro returns t as UTC Unix microseconds.
 func UnixMicro(t time.Time) int64 { return UTC(t).UnixMicro() }
 
-// RFC3339Micro returns t in Mosscap's wire timestamp format.
+// RFC3339Micro returns t in Cue's wire timestamp format.
 func RFC3339Micro(t time.Time) string { return UTC(t).Format("2006-01-02T15:04:05.000000Z07:00") }

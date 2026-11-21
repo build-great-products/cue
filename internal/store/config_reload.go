@@ -6,7 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 
-	"github.com/stayradiated/mosscap/internal/identity"
+	"github.com/build-great-products/cue/internal/identity"
 )
 
 // ConfigReloadResult is the durable, token-free outcome of a gateway

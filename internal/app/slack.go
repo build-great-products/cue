@@ -8,9 +8,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/securepath"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/securepath"
 )
 
 // readCommandTextSource reads one complete message body before any gateway

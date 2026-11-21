@@ -1,4 +1,4 @@
-// Package config owns Mosscap's strict, private TOML configuration.
+// Package config owns Cue's strict, private TOML configuration.
 package config
 
 import (
@@ -20,8 +20,8 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
-	"github.com/stayradiated/mosscap/internal/securepath"
-	"github.com/stayradiated/mosscap/internal/store"
+	"github.com/build-great-products/cue/internal/securepath"
+	"github.com/build-great-products/cue/internal/store"
 )
 
 const (
@@ -144,12 +144,12 @@ func DefaultLocation() (Location, error) {
 	if err != nil {
 		return Location{}, err
 	}
-	configDir := filepath.Join(configRoot, "mosscap")
-	stateDir := filepath.Join(stateRoot, "mosscap")
+	configDir := filepath.Join(configRoot, "cue")
+	stateDir := filepath.Join(stateRoot, "cue")
 	return Location{Home: home, Path: filepath.Join(configDir, FileName), Paths: Paths{
 		ConfigDir: configDir,
 		StateDir:  stateDir,
-		Database:  filepath.Join(stateDir, "mosscap.sqlite3"),
+		Database:  filepath.Join(stateDir, "cue.sqlite3"),
 		Endpoint:  filepath.Join(stateDir, "control.sock"),
 		TmpDir:    filepath.Join(stateDir, "tmp"),
 	}}, nil
@@ -229,7 +229,7 @@ func pathsFor(loc Location) (Paths, error) {
 		return Paths{}, errors.New("invalid XDG location: config path is not config.toml")
 	}
 	if p.Database == "" {
-		p.Database = filepath.Join(p.StateDir, "mosscap.sqlite3")
+		p.Database = filepath.Join(p.StateDir, "cue.sqlite3")
 	}
 	if p.Endpoint == "" {
 		p.Endpoint = filepath.Join(p.StateDir, "control.sock")
@@ -237,7 +237,7 @@ func pathsFor(loc Location) (Paths, error) {
 	if p.TmpDir == "" {
 		p.TmpDir = filepath.Join(p.StateDir, "tmp")
 	}
-	if p.Database != filepath.Join(p.StateDir, "mosscap.sqlite3") || p.Endpoint != filepath.Join(p.StateDir, "control.sock") || p.TmpDir != filepath.Join(p.StateDir, "tmp") {
+	if p.Database != filepath.Join(p.StateDir, "cue.sqlite3") || p.Endpoint != filepath.Join(p.StateDir, "control.sock") || p.TmpDir != filepath.Join(p.StateDir, "tmp") {
 		return Paths{}, errors.New("invalid XDG location: state paths must be fixed")
 	}
 	return p, nil
@@ -462,7 +462,7 @@ func initializeLedger(c Config) (Config, error) {
 }
 
 func template(c Config) []byte {
-	return []byte(fmt.Sprintf(`# Mosscap configuration. Paths are fixed by XDG_CONFIG_HOME and XDG_STATE_HOME.
+	return []byte(fmt.Sprintf(`# Cue configuration. Paths are fixed by XDG_CONFIG_HOME and XDG_STATE_HOME.
 # Keep this file private (mode 0600). Empty Slack fields are allowed until Slack is configured.
 version = %d
 
@@ -502,7 +502,7 @@ var settable = map[string]bool{
 // use SetSecret so callers cannot accidentally pass them through argv.
 func Set(loc Location, key, value string) (Config, error) {
 	if isSecretKey(key) {
-		return Config{}, fmt.Errorf("config key %q is secret; use `mosscap config secret set %s`", key, key)
+		return Config{}, fmt.Errorf("config key %q is secret; use `cue config secret set %s`", key, key)
 	}
 	return set(loc, key, value)
 }

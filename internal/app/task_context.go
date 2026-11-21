@@ -1,7 +1,7 @@
 package app
 
 import (
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 func (a App) taskContextTyped(selector string, threadLimit int, jsonOut bool) error {

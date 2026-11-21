@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 const (

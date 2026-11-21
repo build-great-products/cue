@@ -5,8 +5,8 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // slackTyped binds Cobra-parsed Slack leaves directly to protocol requests.
@@ -107,7 +107,7 @@ func (a App) slackTyped(command string, cmd *cobra.Command, args []string) error
 		if limit == 0 {
 			limit = 50
 		}
-		continuation := "mosscap slack " + command
+		continuation := "cue slack " + command
 		if command == "thread" {
 			continuation += " " + shellQuote(args[0])
 		}

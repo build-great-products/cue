@@ -71,7 +71,7 @@ func TestReadRegularFileRejectsSymlinkAndOversize(t *testing.T) {
 }
 
 func TestEnsurePrivateAbsoluteDirRejectsSharedTemporaryAncestor(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "xdg", "mosscap")
+	path := filepath.Join(t.TempDir(), "xdg", "cue")
 	if err := EnsurePrivateAbsoluteDir(path); err == nil || !strings.Contains(err.Error(), "writable") {
 		t.Fatalf("EnsurePrivateAbsoluteDir shared tmp error = %v", err)
 	}

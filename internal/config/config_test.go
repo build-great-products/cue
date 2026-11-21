@@ -13,12 +13,12 @@ import (
 func testLocation(t *testing.T) Location {
 	t.Helper()
 	home := t.TempDir()
-	configDir := filepath.Join(home, "config", "mosscap")
-	stateDir := filepath.Join(home, "state", "mosscap")
+	configDir := filepath.Join(home, "config", "cue")
+	stateDir := filepath.Join(home, "state", "cue")
 	return Location{Home: home, Path: filepath.Join(configDir, FileName), Paths: Paths{
 		ConfigDir: configDir,
 		StateDir:  stateDir,
-		Database:  filepath.Join(stateDir, "mosscap.sqlite3"),
+		Database:  filepath.Join(stateDir, "cue.sqlite3"),
 		Endpoint:  filepath.Join(stateDir, "control.sock"),
 		TmpDir:    filepath.Join(stateDir, "tmp"),
 	}}
@@ -115,8 +115,8 @@ func TestLoadStrictLegacyDiagnosticsAndNoEnvironmentSecrets(t *testing.T) {
 	if _, err := Setup(loc); err != nil {
 		t.Fatal(err)
 	}
-	t.Setenv("MOSSCAP_SLACK_APP_TOKEN", "xapp-from-environment")
-	t.Setenv("MOSSCAP_SLACK_BOT_TOKEN", "xoxb-from-environment")
+	t.Setenv("CUE_SLACK_APP_TOKEN", "xapp-from-environment")
+	t.Setenv("CUE_SLACK_BOT_TOKEN", "xoxb-from-environment")
 	got, err := Load(loc)
 	if err != nil {
 		t.Fatal(err)

@@ -1,4 +1,4 @@
-// Package identity creates opaque Mosscap identifiers.
+// Package identity creates opaque Cue identifiers.
 package identity
 
 import (

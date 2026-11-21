@@ -1,4 +1,4 @@
-module github.com/stayradiated/mosscap
+module github.com/build-great-products/cue
 
 go 1.26.3
 

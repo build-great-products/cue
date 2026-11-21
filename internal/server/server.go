@@ -1,4 +1,4 @@
-// Package server serves the private local Mosscap protocol.
+// Package server serves the private local Cue protocol.
 package server
 
 import (
@@ -16,19 +16,19 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/doctor"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/filetransfer"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/securepath"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackingest"
-	"github.com/stayradiated/mosscap/internal/slackops"
-	"github.com/stayradiated/mosscap/internal/slackruntime"
-	"github.com/stayradiated/mosscap/internal/status"
-	"github.com/stayradiated/mosscap/internal/store"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/filetransfer"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/securepath"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackingest"
+	"github.com/build-great-products/cue/internal/slackops"
+	"github.com/build-great-products/cue/internal/slackruntime"
+	"github.com/build-great-products/cue/internal/status"
+	"github.com/build-great-products/cue/internal/store"
+	"github.com/build-great-products/cue/internal/task"
 	"golang.org/x/sys/unix"
 )
 
@@ -855,7 +855,7 @@ func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.Tas
 // local-completion ID. The caller ID is deliberately the Slack send ID, so it
 // remains globally consumed and cannot be reused for another mutation.
 func taskReplyDoneRequestID(requestID string) string {
-	sum := sha256.Sum256([]byte("mosscap.task.reply.done.v1\x00" + requestID))
+	sum := sha256.Sum256([]byte("cue.task.reply.done.v1\x00" + requestID))
 	return fmt.Sprintf("req_task_reply_done_%x", sum[:16])
 }
 

@@ -2,9 +2,9 @@ package app
 
 import (
 	"encoding/json"
-	"github.com/stayradiated/mosscap/internal/fileio"
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/fileio"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // fileShowTyped directly binds the selector Cobra has already parsed. Metadata

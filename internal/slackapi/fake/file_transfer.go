@@ -9,7 +9,7 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 // TransferOperation is one observable FileTransfer protocol phase.

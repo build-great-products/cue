@@ -1,6 +1,6 @@
 package filetransfer
 
-import "github.com/stayradiated/mosscap/internal/fileio"
+import "github.com/build-great-products/cue/internal/fileio"
 
 // FileIOFiles adapts the reviewed descriptor-based fileio primitives to the
 // service lifecycle interfaces. It owns neither the directory nor its Close;

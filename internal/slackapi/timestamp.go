@@ -41,7 +41,7 @@ func ParseTimestamp(value string) (Timestamp, error) {
 }
 
 // Valid reports whether t has canonical Slack timestamp syntax and fits in
-// Mosscap's integer-microsecond storage representation.
+// Cue's integer-microsecond storage representation.
 func (t Timestamp) Valid() bool {
 	_, err := ParseTimestamp(string(t))
 	return err == nil

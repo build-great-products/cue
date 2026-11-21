@@ -4,7 +4,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/doctor"
+	"github.com/build-great-products/cue/internal/doctor"
 )
 
 func TestDoctorRollbackProbeLeavesNoDurableRowsOrObjects(t *testing.T) {
@@ -31,7 +31,7 @@ func TestDoctorRollbackProbeLeavesNoDurableRowsOrObjects(t *testing.T) {
 		t.Fatalf("counts after doctor = %+v, want %+v", after, before)
 	}
 	var durable int
-	if err := s.DB().QueryRow("SELECT count(*) FROM sqlite_master WHERE name='mosscap_doctor_probe'").Scan(&durable); err != nil {
+	if err := s.DB().QueryRow("SELECT count(*) FROM sqlite_master WHERE name='cue_doctor_probe'").Scan(&durable); err != nil {
 		t.Fatal(err)
 	}
 	if durable != 0 {

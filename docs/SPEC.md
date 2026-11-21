@@ -1,4 +1,4 @@
-# Mosscap v1 product contract
+# Cue v1 product contract
 
 **Status:** normative contract for the current integrated v1 implementation
 
@@ -8,7 +8,7 @@ The former numbered phases were implementation milestones. They are not product 
 
 ## 1. Scope
 
-Mosscap must provide:
+Cue must provide:
 
 - one foreground Go gateway and short-lived CLI clients;
 - one Slack Socket Mode workspace connection that admits work from every channel the bot is a member of;
@@ -24,7 +24,7 @@ Mosscap must provide:
 - a private versioned local protocol; and
 - explicit inspection, retry, and metadata purge operations.
 
-Mosscap does not need to start, supervise, or prompt an agent, support more than one Slack workspace or direct messages, retain historical task text, archive file bytes, infer task state from conversation, retry uncertain external work automatically, provide a browser UI, or guarantee end-to-end exactly-once execution.
+Cue does not need to start, supervise, or prompt an agent, support more than one Slack workspace or direct messages, retain historical task text, archive file bytes, infer task state from conversation, retry uncertain external work automatically, provide a browser UI, or guarantee end-to-end exactly-once execution.
 
 ## 2. Authority and persistence
 
@@ -38,13 +38,13 @@ Every gateway mutation must carry a client-generated request ID. A replay with t
 
 ## 3. Configuration and local security
 
-Mosscap uses fixed XDG-derived paths:
+Cue uses fixed XDG-derived paths:
 
 ```text
-$XDG_CONFIG_HOME/mosscap/config.toml
-$XDG_STATE_HOME/mosscap/mosscap.sqlite3
-$XDG_STATE_HOME/mosscap/control.sock
-$XDG_STATE_HOME/mosscap/tmp/
+$XDG_CONFIG_HOME/cue/config.toml
+$XDG_STATE_HOME/cue/cue.sqlite3
+$XDG_STATE_HOME/cue/control.sock
+$XDG_STATE_HOME/cue/tmp/
 ```
 
 Fallbacks are `~/.config` and `~/.local/state`. Configuration and state roots must be owner-only directories. Sensitive files must be owner-only regular files; unsafe ownership, modes, symlinks, hard links, or escaped state paths must fail closed.
@@ -87,7 +87,7 @@ A new message (not an edit) is also admitted without a mention as a **follow-up*
 
 A follow-up is a new task, never a change to an earlier one. Its source records the thread root as `thread_ts` and `parent_task_id`: the task admitted from the root message, else the related task of a confirmed root `send`, else the earliest task in the thread, else the related task of the earliest confirmed post in the thread, else none. `parent_task_id` is provenance only: it is not a foreign key and may name a purged task. Any admitted reply, mentioned or not, gets the same link. A message that neither mentions the bot nor is a follow-up is `ignored_unmentioned` and gets no reaction. Messages from the bot, or with a subtype other than `thread_broadcast` or `file_share`, are `ignored_bot`. An attachment-only follow-up has the task text `(attachment without message text)`. Admission, deduplication, commit-before-ack, edits, and deletion are otherwise exactly as for mentioned messages.
 
-For each identifiable envelope, the gateway must deduplicate and commit the admission result before acknowledging Slack. A commit failure must not be acknowledged. Mosscap makes no receipt claim while disconnected from Socket Mode.
+For each identifiable envelope, the gateway must deduplicate and commit the admission result before acknowledging Slack. A commit failure must not be acknowledged. Cue makes no receipt claim while disconnected from Socket Mode.
 
 An admitted message creates at most one task. A meaningful newer source edit replaces current text/attachment metadata and increments version. Stale edits must not roll content backward. Source deletion preserves task text and state while recording deletion metadata. Incoming attachments are metadata-only until explicitly retrieved.
 
@@ -172,15 +172,15 @@ Logs and diagnostics must exclude credentials, authorization headers, raw Slack 
 The current command families are:
 
 ```text
-mosscap setup
-mosscap config show|set|secret set
-mosscap gateway run|reload|status
-mosscap doctor
-mosscap task create|list|show|context|watch|update|open|working|done|reply
-mosscap slack history|thread|send|file|edit|delete|react|unreact   (each accepts --channel; thread and writes accept --task)
-mosscap effect list|inspect|retry
-mosscap file show|get
-mosscap purge
+cue setup
+cue config show|set|secret set
+cue gateway run|reload|status
+cue doctor
+cue task create|list|show|context|watch|update|open|working|done|reply
+cue slack history|thread|send|file|edit|delete|react|unreact   (each accepts --channel; thread and writes accept --task)
+cue effect list|inspect|retry
+cue file show|get
+cue purge
 ```
 
 SQLite-backed `task list` and `effect list` accept bounded `--limit`/`--cursor` pages (effects also accept composable `--task`). Tasks are oldest-created-first; effects newest-created-first. Resource cursors are full IDs and a purged anchor returns typed `cursor_expired` conflict guidance to restart without `--cursor`. `slack history` and `slack thread` likewise accept `--limit` and `--cursor`; both default to and cap at 50 messages, preserve Slack's native order, and pass the opaque Slack cursor unchanged.
@@ -222,7 +222,7 @@ Stable process exit categories are:
 5. Slack intent commits before submission; possibly submitted work becomes ambiguous and is never automatically retried.
 6. Durable records contain file metadata and outcomes, not permanent transfer bytes.
 7. Purge preserves live work and unresolved evidence.
-8. Mosscap never starts or owns an agent.
+8. Cue never starts or owns an agent.
 9. Watching tasks never changes task or Slack state.
 10. Tokens never enter SQLite, logs, or protocol output.
 11. Configuration reload either activates one complete verified snapshot or leaves the previous snapshot active.

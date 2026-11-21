@@ -14,12 +14,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/server"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/server"
 )
 
-// watchProcess is one running `mosscap task watch` with its stdout lines and
+// watchProcess is one running `cue task watch` with its stdout lines and
 // stderr captured separately, proving stdout carries events only.
 type watchProcess struct {
 	cmd    *exec.Cmd
@@ -120,7 +120,7 @@ func startWatchProcess(t *testing.T, binary string, env []string, args ...string
 
 func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 	home := effectiveHome(t)
-	root, err := os.MkdirTemp(home, ".mosscap-watch-")
+	root, err := os.MkdirTemp(home, ".cue-watch-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -128,8 +128,8 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 	if err := os.Chmod(root, 0700); err != nil {
 		t.Fatal(err)
 	}
-	binary := filepath.Join(t.TempDir(), "mosscap")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/mosscap")
+	binary := filepath.Join(t.TempDir(), "cue")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/cue")
 	build.Dir = sourceRoot(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build executable: %v\n%s", err, output)
@@ -143,7 +143,7 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 		cmd.Env = env
 		output, err := cmd.CombinedOutput()
 		if err != nil {
-			t.Fatalf("mosscap %s: %v\n%s", strings.Join(args, " "), err, output)
+			t.Fatalf("cue %s: %v\n%s", strings.Join(args, " "), err, output)
 		}
 		return output
 	}

@@ -1,4 +1,4 @@
-// Package store owns Mosscap's SQLite ledger and durable mutation deduplication.
+// Package store owns Cue's SQLite ledger and durable mutation deduplication.
 package store
 
 import (
@@ -17,11 +17,11 @@ import (
 	"sync"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/clock"
-	"github.com/stayradiated/mosscap/internal/doctor"
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/status"
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/clock"
+	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/status"
+	"github.com/build-great-products/cue/internal/task"
 	_ "modernc.org/sqlite"
 )
 
@@ -279,9 +279,9 @@ func (s *Store) Doctor(ctx context.Context) []doctor.Check {
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
 	if err == nil {
-		_, err = tx.ExecContext(ctx, "CREATE TEMP TABLE mosscap_doctor_probe (value INTEGER)")
+		_, err = tx.ExecContext(ctx, "CREATE TEMP TABLE cue_doctor_probe (value INTEGER)")
 		if err == nil {
-			_, err = tx.ExecContext(ctx, "INSERT INTO mosscap_doctor_probe(value) VALUES(1)")
+			_, err = tx.ExecContext(ctx, "INSERT INTO cue_doctor_probe(value) VALUES(1)")
 		}
 		rollErr := tx.Rollback()
 		if err == nil {
@@ -294,7 +294,7 @@ func (s *Store) Doctor(ctx context.Context) []doctor.Check {
 		checks = append(checks, doctor.Check{Name: "sqlite_rollback_write", Status: doctor.Pass, Message: "SQLite rolled-back write probe passed"})
 	}
 	if err := s.compatible(ctx); err != nil {
-		checks = append(checks, doctor.Check{Name: "schema_compatibility", Status: doctor.Fail, Message: "ledger schema is incompatible", Action: "run the matching Mosscap version or restore a compatible ledger"})
+		checks = append(checks, doctor.Check{Name: "schema_compatibility", Status: doctor.Fail, Message: "ledger schema is incompatible", Action: "run the matching Cue version or restore a compatible ledger"})
 	} else {
 		checks = append(checks, doctor.Check{Name: "schema_compatibility", Status: doctor.Pass, Message: "ledger schema is compatible"})
 	}

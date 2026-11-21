@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 func TestFileTransferRunsOrderedStagesAndDoesNotCompleteAfterValidationFailure(t *testing.T) {

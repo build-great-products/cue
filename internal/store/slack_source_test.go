@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/clock"
+	"github.com/build-great-products/cue/internal/clock"
 )
 
 var sourceTestPolicy = SlackAdmissionPolicy{TeamID: "T12345678", BotUserID: "U99999999"}

@@ -6,7 +6,7 @@ import (
 	"io"
 	"sync"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 // Barrier is a context-aware, reusable test gate. Wait reports that the gate

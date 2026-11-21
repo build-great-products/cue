@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/identity"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/identity"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // taskTyped binds Cobra's already-parsed task leaves directly to protocol DTOs.
@@ -90,7 +90,7 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		out = map[string]any{"request_id": requestID, "result": out}
 	}
 	if command == "list" {
-		continuation := "mosscap task list"
+		continuation := "cue task list"
 		if state != "" {
 			continuation += " --state " + shellQuote(state)
 		} else if all {

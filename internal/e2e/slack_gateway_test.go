@@ -12,12 +12,12 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/server"
-	"github.com/stayradiated/mosscap/internal/slackapi"
-	"github.com/stayradiated/mosscap/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/server"
+	"github.com/build-great-products/cue/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi/fake"
 	_ "modernc.org/sqlite"
 )
 
@@ -27,7 +27,7 @@ import (
 // automatic retry of an ambiguous write) fail the gate.
 func TestSlackVerticalSlice(t *testing.T) {
 	home := effectiveHome(t)
-	root, err := os.MkdirTemp(home, ".mosscap-slack-")
+	root, err := os.MkdirTemp(home, ".cue-slack-")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -165,8 +165,8 @@ func TestSlackVerticalSlice(t *testing.T) {
 	}
 
 	// The executable CLI takes the same negotiated protocol route for reads and writes.
-	binary := filepath.Join(t.TempDir(), "mosscap")
-	build := exec.Command("go", "build", "-o", binary, "./cmd/mosscap")
+	binary := filepath.Join(t.TempDir(), "cue")
+	build := exec.Command("go", "build", "-o", binary, "./cmd/cue")
 	build.Dir = sourceRoot(t)
 	if output, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("build CLI: %v: %s", err, output)

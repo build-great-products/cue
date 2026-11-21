@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/stayradiated/mosscap/internal/task"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 func taskChangeSeqs(t *testing.T, s *Store, after int64) ([]TaskChange, int64) {

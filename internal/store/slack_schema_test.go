@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/slackapi"
+	"github.com/build-great-products/cue/internal/slackapi"
 )
 
 func schemaV2Database(t *testing.T, path string) *sql.DB {

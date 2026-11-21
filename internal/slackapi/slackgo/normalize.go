@@ -5,8 +5,8 @@ import (
 	"net/url"
 	"unicode/utf8"
 
+	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/slack-go/slack"
-	"github.com/stayradiated/mosscap/internal/slackapi"
 )
 
 func normalizeFiles(files []slack.File, maximum int) ([]slackapi.File, error) {

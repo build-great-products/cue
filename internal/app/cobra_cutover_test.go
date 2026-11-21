@@ -16,7 +16,7 @@ func TestCobraCutoverHonorsEndOfOptionsForPositionalSelectors(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-cutover-test-")
+	root, err := os.MkdirTemp(home, ".cue-cutover-test-")
 	if err != nil {
 		t.Fatal(err)
 	}

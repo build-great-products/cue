@@ -1,10 +1,10 @@
-# Mosscap
+# Cue
 
 **Durable Slack work for a long-running agent session.**
 
-Mosscap connects the Slack channels its bot is a member of to an agent session such as Claude Code. Eligible Slack mentions and local requests become durable tasks in SQLite. The agent follows them with `mosscap task watch`, which prints one line per task event, and handles each task with explicit CLI commands.
+Cue connects the Slack channels its bot is a member of to an agent session such as Claude Code. Eligible Slack mentions and local requests become durable tasks in SQLite. The agent follows them with `cue task watch`, which prints one line per task event, and handles each task with explicit CLI commands.
 
-Mosscap does not start, supervise, or prompt the agent. A person (or a supervisor) runs the agent and points its background monitor at `task watch`.
+Cue does not start, supervise, or prompt the agent. A person (or a supervisor) runs the agent and points its background monitor at `task watch`.
 
 ```text
 Slack ───────┐
@@ -12,7 +12,7 @@ Slack ───────┐
 Go CLI ──────┘              │
                             │ private local protocol
                             ▼
-                 mosscap task watch (one line per event)
+                 cue task watch (one line per event)
                             │
                             ▼
                      agent session
@@ -37,9 +37,9 @@ Requirements are Go and `just`.
 
 ```sh
 just build
-./bin/mosscap setup
-./bin/mosscap config secret set slack_app_token
-./bin/mosscap config secret set slack_bot_token
+./bin/cue setup
+./bin/cue config secret set slack_app_token
+./bin/cue config secret set slack_bot_token
 ```
 
 Import [`manifest.json`](manifest.json) into a Slack development app, create an app-level Socket Mode token with `connections:write`, install the app in the intended workspace, and invite it to each channel that should give it work. The manifest covers public (`message.channels`, `channels:read`, `channels:history`) and private (`message.groups`, `groups:read`, `groups:history`) channels; the gateway verifies every listed scope at startup. Do not add administrative, DM, slash-command, interactivity, or broad channel-join permissions.
@@ -49,10 +49,12 @@ The gateway admits work from every channel the bot is a member of. Inviting the 
 Start the gateway in the foreground:
 
 ```sh
-./bin/mosscap gateway run
+./bin/cue gateway run
 ```
 
-Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`mosscap trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled.
+Upgrading from Mosscap (the project's previous name): stop the gateway, move `~/.config/mosscap` to `~/.config/cue` and `~/.local/state/mosscap` to `~/.local/state/cue` (or the same names under your `XDG_CONFIG_HOME` and `XDG_STATE_HOME`), rename `MOSSCAP_SLACK_*_TOKEN` environment variables to `CUE_SLACK_*_TOKEN`, then start `cue gateway run`. The ledger needs no migration. Temporary download files keep the `mosscap-xfr-` prefix because the ledger schema checks it.
+
+Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled.
 
 ## Admission and tasks
 
@@ -63,7 +65,7 @@ Anyone in the workspace may send the bot work. A Slack message becomes a task wh
 - its sender is a member of the workspace, not a Slack Connect external user from another organization; and
 - it mentions the bot directly, or it is a reply in a thread the bot already tracks (see below).
 
-Messages that neither mention the bot nor reply in a tracked thread are ignored without a reaction. A mention from an external Slack Connect user is ignored the same way, recorded as `ignored_workspace`. Mosscap reads the sender's workspace from the event Slack delivers (`user_team`, else `user_profile.team`, else `team`) and makes no per-message `users.info` call; an event that names no sender workspace is treated as a member's.
+Messages that neither mention the bot nor reply in a tracked thread are ignored without a reaction. A mention from an external Slack Connect user is ignored the same way, recorded as `ignored_workspace`. Cue reads the sender's workspace from the event Slack delivers (`user_team`, else `user_profile.team`, else `team`) and makes no per-message `users.info` call; an event that names no sender workspace is treated as a member's.
 
 Any member of the workspace can direct a fully capable local agent. Choose its working directory, model, and channels with that in mind: these checks decide who may send work, they are not a sandbox.
 
@@ -88,13 +90,13 @@ Task state remains locally authoritative. Slack-origin tasks also show a lifecyc
 Each transition adds the new marker before removing the old one. These are separately recorded Slack effects, so an interrupted or ambiguous Slack call remains inspectable rather than being silently retried or atomically replaced. Edits to the source message change the task text, not the reaction.
 
 ```sh
-mosscap task create --text "review the release"
-mosscap task list
-mosscap task working AbCdEfGh
-mosscap task show AbCdEfGh --json
+cue task create --text "review the release"
+cue task list
+cue task working AbCdEfGh
+cue task show AbCdEfGh --json
 # Prefer this bounded durable-plus-live view before handling a Slack task.
-mosscap task context AbCdEfGh --thread-limit 20
-mosscap task reply AbCdEfGh --stdin --done <<'REPLY'
+cue task context AbCdEfGh --thread-limit 20
+cue task reply AbCdEfGh --stdin --done <<'REPLY'
 I found the problem.
 REPLY
 ```
@@ -109,7 +111,7 @@ Default output is compact human-readable cards, rows, and labelled details; use 
 
 ## Watching tasks
 
-`mosscap task watch` is how an agent receives work. It stays connected to the gateway and prints one line per task event on stdout until interrupted:
+`cue task watch` is how an agent receives work. It stays connected to the gateway and prints one line per task event on stdout until interrupted:
 
 ```text
 cursor=7 change=created task=AbCdEfGhIjKlMnOpQrStUv version=1 state=open source=slack channel=C0BAQM6JEAJ thread=1700000000.000001 parent= text=<@U012BOT> review the release\nthanks
@@ -133,31 +135,31 @@ Watching is read-only. It changes no task state and adds no Slack reactions, so 
 Run the watcher under Claude Code's Monitor tool (or any background runner that turns stdout lines into notifications):
 
 ```sh
-mosscap task watch --cursor-file "$HOME/.local/state/mosscap-watch.cursor"
+cue task watch --cursor-file "$HOME/.local/state/cue-watch.cursor"
 ```
 
 For each notification, the agent claims and handles the task, then replies (Slack-origin tasks; use `task done` for local ones). A line with `parent=` is a follow-up in an existing thread: `task context` shows the conversation it answers, and its reply lands in the same thread.
 
 ```sh
-mosscap task working AbCdEfGhIjKlMnOpQrStUv
-mosscap task context AbCdEfGhIjKlMnOpQrStUv
-mosscap task reply AbCdEfGhIjKlMnOpQrStUv --stdin --done <<'REPLY'
+cue task working AbCdEfGhIjKlMnOpQrStUv
+cue task context AbCdEfGhIjKlMnOpQrStUv
+cue task reply AbCdEfGhIjKlMnOpQrStUv --stdin --done <<'REPLY'
 Done: the release checklist passes.
 REPLY
 ```
 
 ## Slack commands and channels
 
-Every `mosscap slack ...` command works in one channel. Name it with `--channel C...`, or pass `--task` to use a Slack task's own channel. With neither, the command fails with `channel_required`. A target that is not a public (`C...`) or private (`G...`) channel in the active workspace fails with `invalid_channel`; Slack itself refuses channels the bot is not a member of.
+Every `cue slack ...` command works in one channel. Name it with `--channel C...`, or pass `--task` to use a Slack task's own channel. With neither, the command fails with `channel_required`. A target that is not a public (`C...`) or private (`G...`) channel in the active workspace fails with `invalid_channel`; Slack itself refuses channels the bot is not a member of.
 
 ```sh
-mosscap slack history --channel C0BAQM6JEAJ --limit 20
-mosscap slack thread 1700000000.000001 --task AbCdEfGh
-mosscap slack send --task AbCdEfGh --thread 1700000000.000001 --stdin <<'REPLY'
+cue slack history --channel C0BAQM6JEAJ --limit 20
+cue slack thread 1700000000.000001 --task AbCdEfGh
+cue slack send --task AbCdEfGh --thread 1700000000.000001 --stdin <<'REPLY'
 Long multiline reply.
 REPLY
-mosscap slack file --channel C0CC6JQ4A2U --thread 1700000000.000001 --file ./demo.mp4
-mosscap slack react 1700000000.000001 white_check_mark --task AbCdEfGh
+cue slack file --channel C0CC6JQ4A2U --thread 1700000000.000001 --file ./demo.mp4
+cue slack react 1700000000.000001 white_check_mark --task AbCdEfGh
 ```
 
 `task reply` and `task context` always use the task's own channel and thread.
@@ -167,22 +169,22 @@ mosscap slack react 1700000000.000001 white_check_mark --task AbCdEfGh
 Incoming Slack attachments are stored as metadata and downloaded only on request:
 
 ```sh
-mosscap file show EXAMPLE --json
-mosscap file get EXAMPLE --output ./attachment.bin
-mosscap slack file --file ./result.bin
+cue file show EXAMPLE --json
+cue file get EXAMPLE --output ./attachment.bin
+cue slack file --file ./result.bin
 ```
 
-Mosscap retains file metadata and transfer outcomes, not permanent copies of transferred bytes.
+Cue retains file metadata and transfer outcomes, not permanent copies of transferred bytes.
 
-SQLite is authoritative for tasks and Slack effects. Mosscap does not claim exactly-once execution across SQLite and Slack:
+SQLite is authoritative for tasks and Slack effects. Cue does not claim exactly-once execution across SQLite and Slack:
 
 - a Slack operation that may have reached Slack becomes `ambiguous` and requires inspection before retry; and
 - retries preserve the previous attempt and make duplicate risk explicit.
 
 ```sh
-mosscap effect list --state ambiguous --json
-mosscap gateway status --json
-mosscap doctor --json
+cue effect list --state ambiguous --json
+cue gateway status --json
+cue doctor --json
 ```
 
 ## Configuration and local state
@@ -190,10 +192,10 @@ mosscap doctor --json
 `config.toml` contains all scalar settings. Slack tokens are redacted from command output and are never stored in SQLite. Paths are fixed under owner-only XDG roots:
 
 ```text
-$XDG_CONFIG_HOME/mosscap/config.toml
-$XDG_STATE_HOME/mosscap/mosscap.sqlite3
-$XDG_STATE_HOME/mosscap/control.sock
-$XDG_STATE_HOME/mosscap/tmp/
+$XDG_CONFIG_HOME/cue/config.toml
+$XDG_STATE_HOME/cue/cue.sqlite3
+$XDG_STATE_HOME/cue/control.sock
+$XDG_STATE_HOME/cue/tmp/
 ```
 
 `config set` stages one validated change while preserving comments and formatting. `gateway reload` verifies and activates the complete candidate snapshot atomically; a failed reload leaves the active runtime unchanged.

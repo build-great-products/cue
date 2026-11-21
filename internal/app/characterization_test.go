@@ -11,8 +11,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/protocol"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/protocol"
 )
 
 // TestCommandTreeCharacterization records the complete user-visible command
@@ -124,7 +124,7 @@ func characterizationEndpoint(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	root, err := os.MkdirTemp(home, ".mosscap-characterization-")
+	root, err := os.MkdirTemp(home, ".cue-characterization-")
 	if err != nil {
 		t.Fatal(err)
 	}

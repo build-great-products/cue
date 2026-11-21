@@ -33,10 +33,12 @@ var (
 	ErrDestinationExists = errors.New("destination exists")
 	// ErrUnsupported means the kernel lacks an atomic primitive required to fail closed.
 	ErrUnsupported = errors.New("unsupported file I/O primitive")
-	// ErrInvalidTemporary means an entry is not a Mosscap private generated file.
+	// ErrInvalidTemporary means an entry is not a Cue private generated file.
 	ErrInvalidTemporary = errors.New("unsafe temporary file")
 )
 
+// generatedPrefix keeps the project's original name: the ledger schema (migrations 0005, 0006)
+// checks it, so changing it would need a migration.
 const generatedPrefix = "mosscap-xfr-"
 
 // testHook is deliberately package-private. Tests use it for deterministic
@@ -419,7 +421,7 @@ func (d *TempDir) Reconcile(known map[string]struct{}) (ReconcileReport, error) 
 	return report, nil
 }
 
-// IsGeneratedName reports whether name is exactly a generated Mosscap temp
+// IsGeneratedName reports whether name is exactly a generated Cue temp
 // basename. It deliberately accepts no separators or external filenames.
 func IsGeneratedName(name string) bool {
 	if !strings.HasPrefix(name, generatedPrefix) || len(name) != len(generatedPrefix)+32 {
@@ -721,7 +723,7 @@ func classifyOpen(err error) error {
 }
 
 func generatedName() (string, error) { return randomName(generatedPrefix) }
-func outputName() (string, error)    { return randomName(".mosscap-output-") }
+func outputName() (string, error)    { return randomName(".cue-output-") }
 
 func randomName(prefix string) (string, error) {
 	var entropy [16]byte

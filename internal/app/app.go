@@ -1,4 +1,4 @@
-// Package app contains Mosscap's command tree and process-facing rendering.
+// Package app contains Cue's command tree and process-facing rendering.
 package app
 
 import (
@@ -18,12 +18,12 @@ import (
 	"github.com/spf13/cobra"
 	"golang.org/x/sys/unix"
 
-	"github.com/stayradiated/mosscap/internal/client"
-	"github.com/stayradiated/mosscap/internal/config"
-	"github.com/stayradiated/mosscap/internal/doctor"
-	"github.com/stayradiated/mosscap/internal/protocol"
-	"github.com/stayradiated/mosscap/internal/securepath"
-	"github.com/stayradiated/mosscap/internal/store"
+	"github.com/build-great-products/cue/internal/client"
+	"github.com/build-great-products/cue/internal/config"
+	"github.com/build-great-products/cue/internal/doctor"
+	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/securepath"
+	"github.com/build-great-products/cue/internal/store"
 )
 
 const (
