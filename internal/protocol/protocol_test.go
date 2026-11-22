@@ -356,3 +356,37 @@ func TestTaskCreateReplyTargetParamsAreStrict(t *testing.T) {
 		t.Fatalf("named task = %s", named)
 	}
 }
+
+func TestUnfurlParamsValidation(t *testing.T) {
+	for _, tc := range []struct {
+		name    string
+		command string
+		params  string
+		valid   bool
+	}{
+		{"send default", "slack.send", `{"channel":"C012ABC","text":"see https://example.com"}`, true},
+		{"send unfurl", "slack.send", `{"channel":"C012ABC","text":"see https://example.com","unfurl":true}`, true},
+		{"send unfurl false", "slack.send", `{"channel":"C012ABC","text":"x","unfurl":false}`, true},
+		{"send unfurl with files", "slack.send", `{"channel":"C012ABC","text":"x","file_paths":["/tmp/a.txt"],"unfurl":true}`, false},
+		{"send files default", "slack.send", `{"channel":"C012ABC","text":"x","file_paths":["/tmp/a.txt"]}`, true},
+		{"send unfurl not bool", "slack.send", `{"channel":"C012ABC","text":"x","unfurl":"yes"}`, false},
+		{"send removed no_unfurl", "slack.send", `{"channel":"C012ABC","text":"x","no_unfurl":true}`, false},
+		{"reply unfurl", "task.reply", `{"task":"abcdefghijklmnopqrstuv","text":"reply","unfurl":true}`, true},
+		{"reply unfurl not bool", "task.reply", `{"task":"abcdefghijklmnopqrstuv","text":"reply","unfurl":1}`, false},
+		{"edit has no unfurl", "slack.edit", `{"message_ts":"1700000000.000001","text":"x","unfurl":true}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := ValidateParams(tc.command, []byte(tc.params))
+			if (err == nil) != tc.valid {
+				t.Fatalf("ValidateParams(%q, %s) error = %v, valid = %v", tc.command, tc.params, err, tc.valid)
+			}
+		})
+	}
+	found := false
+	for _, capability := range ServerCapabilities {
+		found = found || capability == CapabilitySlackUnfurl
+	}
+	if !found {
+		t.Fatalf("ServerCapabilities does not advertise %s", CapabilitySlackUnfurl)
+	}
+}

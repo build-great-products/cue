@@ -868,7 +868,7 @@ func (s *Server) taskReply(ctx context.Context, requestID string, p protocol.Tas
 // replyInThread durably posts p.Text into one Slack thread for a task and,
 // with p.Done, completes the task only after Slack confirms the post.
 func (s *Server) replyInThread(ctx context.Context, requestID string, p protocol.TaskReplyParams, taskID, teamID, channelID, threadTS string) (protocol.TaskReplyDTO, error) {
-	intent := store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: threadTS, Text: p.Text, RelatedTaskID: taskID}
+	intent := store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: threadTS, Text: p.Text, RelatedTaskID: taskID, Unfurl: p.Unfurl}
 	prepared, err := s.store.PrepareSlackEffect(ctx, requestID, store.SlackEffectTarget{TeamID: teamID, ChannelID: channelID}, intent)
 	if err != nil {
 		return protocol.TaskReplyDTO{}, err
@@ -1205,6 +1205,8 @@ func errorResponse(id, version string, err error) protocol.Response {
 		code, category = "slack_unavailable", "unavailable"
 	case errors.Is(err, errReplyAdapterNotConfigured):
 		code, category = "reply_adapter_not_configured", "usage"
+	case errors.Is(err, errUnfurlNotSlack):
+		code, category = "unfurl_not_applicable", "usage"
 	case func() bool { var adapter *replyAdapterError; return errors.As(err, &adapter) }():
 		var adapter *replyAdapterError
 		_ = errors.As(err, &adapter)
@@ -1380,6 +1382,10 @@ func slackEffectDTOs(effects []store.SlackEffect) []protocol.SlackEffectDTO {
 
 func slackEffectDTO(e store.SlackEffect) protocol.SlackEffectDTO {
 	out := protocol.SlackEffectDTO{EffectID: e.ID, PredecessorEffectID: e.PredecessorEffectID, RelatedTaskID: e.RelatedTaskID, ChannelID: e.ChannelID, Kind: string(e.Kind), TargetMessageTS: e.TargetMessageTS, ThreadTS: e.ThreadTS, State: string(e.State), AttemptCount: e.AttemptCount, PreparedAt: stamp(e.PreparedAt), ResponseMessageTS: e.ResponseMessageTS, DiagnosticCode: string(e.DiagnosticCode)}
+	if e.Kind == store.SlackEffectSend {
+		unfurl := e.Unfurl
+		out.Unfurl = &unfurl
+	}
 	if e.SubmittedAt != nil {
 		v := stamp(*e.SubmittedAt)
 		out.SubmittedAt = &v

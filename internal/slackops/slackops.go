@@ -487,7 +487,7 @@ func (s *Service) call(ctx context.Context, effect store.SlackEffect) store.Slac
 	var result slackapi.MessageResult
 	switch effect.Kind {
 	case store.SlackEffectSend:
-		result, err = s.web.PostMessage(ctx, slackapi.PostMessageRequest{ChannelID: effect.ChannelID, ThreadTS: slackapi.Timestamp(effect.ThreadTS), Text: effect.Text, ClientMessageID: effect.IdempotencyKey})
+		result, err = s.web.PostMessage(ctx, slackapi.PostMessageRequest{ChannelID: effect.ChannelID, ThreadTS: slackapi.Timestamp(effect.ThreadTS), Text: effect.Text, ClientMessageID: effect.IdempotencyKey, Unfurl: effect.Unfurl})
 	case store.SlackEffectEdit:
 		result, err = s.web.UpdateMessage(ctx, slackapi.UpdateMessageRequest{ChannelID: effect.ChannelID, MessageTS: slackapi.Timestamp(effect.TargetMessageTS), Text: effect.Text})
 	case store.SlackEffectDelete:

@@ -28,7 +28,7 @@ func TestStdinTextBodiesReachGatewayExactly(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			requests := serveCharacterizationGateway(t, endpoint, tc.capability)
+			requests := serveCharacterizationGatewayWith(t, endpoint, []string{tc.capability, protocol.CapabilitySlackUnfurl})
 			var out, err bytes.Buffer
 			exit := (App{In: strings.NewReader(tc.input), Out: &out, Err: &err, Version: "stdin-test"}).Run(context.Background(), tc.args)
 			if exit != ExitSuccess {

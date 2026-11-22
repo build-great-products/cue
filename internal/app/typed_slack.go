@@ -54,11 +54,15 @@ func (a App) slackTyped(command string, cmd *cobra.Command, args []string) error
 		}
 		thread, _ := cmd.Flags().GetString("thread")
 		files, _ := cmd.Flags().GetStringArray("file")
+		unfurl, _ := cmd.Flags().GetBool("unfurl")
+		if unfurl && len(files) > 0 {
+			return usage("--unfurl applies only to a text post; it cannot be used with --file")
+		}
 		paths, err := absolutePaths(files)
 		if err != nil {
 			return err
 		}
-		params = protocol.SlackSendParams{Channel: channel, ThreadTS: thread, Text: text, Task: task, FilePaths: paths}
+		params = protocol.SlackSendParams{Channel: channel, ThreadTS: thread, Text: text, Task: task, FilePaths: paths, Unfurl: unfurl}
 		if len(files) > 0 {
 			capability = protocol.CapabilityFileTransfer
 		}
@@ -95,7 +99,7 @@ func (a App) slackTyped(command string, cmd *cobra.Command, args []string) error
 	if err := checkSlackTextFrame(c, "", params, command, requestID, a.Version); err != nil {
 		return err
 	}
-	out, err := a.gatewayCall(c, "slack."+command, requestID, params, capability, channelCapability(channel))
+	out, err := a.gatewayCall(c, "slack."+command, requestID, params, capability, channelCapability(channel), unfurlCapability(command, cmd))
 	if err != nil {
 		return mutationJSONError(err, mutation, jsonOut, requestID)
 	}
@@ -127,6 +131,19 @@ func (a App) slackTypedText(cmd *cobra.Command) (string, error) {
 	textFile, _ := cmd.Flags().GetString("text-file")
 	stdin, _ := cmd.Flags().GetBool("stdin")
 	return a.readCommandTextSource(text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin)
+}
+
+// unfurlCapability is the extra gateway capability a text slack send needs.
+// It is required for every text post, not only with --unfurl: an older
+// gateway would let Slack unfurl a post that Cue now sends without.
+func unfurlCapability(command string, cmd *cobra.Command) string {
+	if command != "send" {
+		return ""
+	}
+	if files, _ := cmd.Flags().GetStringArray("file"); len(files) > 0 {
+		return ""
+	}
+	return protocol.CapabilitySlackUnfurl
 }
 
 // channelCapability is the extra gateway capability an explicit --channel

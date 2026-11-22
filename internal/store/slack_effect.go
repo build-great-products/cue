@@ -102,6 +102,10 @@ type SlackEffectIntent struct {
 	Emoji           string
 	OperatorReason  string
 	RelatedTaskID   string
+	// Unfurl lets Slack unfurl a send's links and media. It is false by
+	// default, which posts with unfurl_links=false and unfurl_media=false. It
+	// is part of the exact external payload and is only valid on a send.
+	Unfurl bool
 }
 
 // SlackEffect is one exact durable effect record.
@@ -118,17 +122,19 @@ type SlackEffect struct {
 	Text                string
 	Emoji               string
 	OperatorReason      string
-	PayloadHash         string
-	State               SlackEffectState
-	AttemptCount        int
-	PreparedAt          time.Time
-	SubmittedAt         *time.Time
-	CompletedAt         *time.Time
-	ResponseMessageTS   string
-	ResponseFileID      string
-	DiagnosticCode      SlackEffectDiagnosticCode
-	CreatedAt           time.Time
-	UpdatedAt           time.Time
+	// Unfurl is meaningful only for a send; see SlackEffectIntent.Unfurl.
+	Unfurl            bool
+	PayloadHash       string
+	State             SlackEffectState
+	AttemptCount      int
+	PreparedAt        time.Time
+	SubmittedAt       *time.Time
+	CompletedAt       *time.Time
+	ResponseMessageTS string
+	ResponseFileID    string
+	DiagnosticCode    SlackEffectDiagnosticCode
+	CreatedAt         time.Time
+	UpdatedAt         time.Time
 }
 
 // SlackEffectMutationResult is deliberately compact and contains no message
@@ -174,14 +180,15 @@ func (s *Store) PrepareSlackEffect(ctx context.Context, requestID string, target
 		idempotencyKey := hashCanonicalSlackEffect("slack.effect.idempotency.v1", requestID, canonical.payloadHash)
 		_, err = tx.ExecContext(ctx, `INSERT INTO slack_effects(
 			effect_id,idempotency_key,related_task_id,kind,team_id,channel_id,
-			target_message_ts,thread_ts,text,emoji,operator_reason,payload_hash,
+			target_message_ts,thread_ts,text,emoji,operator_reason,unfurl,payload_hash,
 			state,attempt_count,prepared_at_us,created_at_us,updated_at_us
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,'prepared',0,?,?,?)`,
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'prepared',0,?,?,?)`,
 			effectID, idempotencyKey, nullString(resolvedTaskID), canonical.intent.Kind,
 			canonical.target.TeamID, canonical.target.ChannelID,
 			nullString(canonical.intent.TargetMessageTS), nullString(canonical.intent.ThreadTS),
 			nullString(canonical.intent.Text), nullString(canonical.intent.Emoji),
-			nullString(canonical.intent.OperatorReason), canonical.payloadHash, now, now, now)
+			nullString(canonical.intent.OperatorReason), unfurlColumn(canonical.intent.Kind, canonical.intent.Unfurl),
+			canonical.payloadHash, now, now, now)
 		if err != nil {
 			return SlackEffectMutationResult{}, err
 		}
@@ -474,14 +481,14 @@ func (s *Store) RetrySlackEffect(ctx context.Context, requestID, predecessorSele
 		idempotencyKey := hashCanonicalSlackEffect("slack.effect.idempotency.v1", requestID, predecessor.PayloadHash)
 		_, err = tx.ExecContext(ctx, `INSERT INTO slack_effects(
 			effect_id,idempotency_key,predecessor_effect_id,related_task_id,kind,
-			team_id,channel_id,target_message_ts,thread_ts,text,emoji,operator_reason,
+			team_id,channel_id,target_message_ts,thread_ts,text,emoji,operator_reason,unfurl,
 			payload_hash,state,attempt_count,prepared_at_us,created_at_us,updated_at_us
-		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,'prepared',0,?,?,?)`,
+		) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,'prepared',0,?,?,?)`,
 			effectID, idempotencyKey, predecessor.ID, nullString(predecessor.RelatedTaskID),
 			predecessor.Kind, predecessor.TeamID, predecessor.ChannelID,
 			nullString(predecessor.TargetMessageTS), nullString(predecessor.ThreadTS),
 			nullString(predecessor.Text), nullString(predecessor.Emoji), reason,
-			predecessor.PayloadHash, now, now, now)
+			unfurlColumn(predecessor.Kind, predecessor.Unfurl), predecessor.PayloadHash, now, now, now)
 		if err != nil {
 			return SlackEffectMutationResult{}, err
 		}
@@ -540,6 +547,9 @@ func canonicalSlackEffect(target SlackEffectTarget, intent SlackEffectIntent) (c
 		return canonicalEffect{}, invalidInput("invalid Slack thread timestamp")
 	}
 
+	if intent.Unfurl && intent.Kind != SlackEffectSend {
+		return canonicalEffect{}, invalidInput("unfurl applies only to a send effect")
+	}
 	normalized := intent
 	switch intent.Kind {
 	case SlackEffectSend:
@@ -577,9 +587,32 @@ func canonicalSlackEffect(target SlackEffectTarget, intent SlackEffectIntent) (c
 		}
 		normalized.Emoji = emoji
 	}
-	payloadHash := hashCanonicalSlackEffect("slack.effect.payload.v1", string(normalized.Kind), target.TeamID,
+	payloadHash := hashCanonicalSlackEffect(payloadHashOperation(normalized), string(normalized.Kind), target.TeamID,
 		target.ChannelID, normalized.TargetMessageTS, normalized.ThreadTS, normalized.Text, normalized.Emoji)
 	return canonicalEffect{target: target, intent: normalized, payloadHash: payloadHash}, nil
+}
+
+// payloadHashOperation keeps the established v1 payload hash for every
+// payload Cue could record before sends turned unfurling off: non-sends, and
+// sends that let Slack unfurl. A send without unfurling hashes under its own
+// operation, so the two forms of one text never share a payload hash, request
+// hash, or idempotency key.
+func payloadHashOperation(intent SlackEffectIntent) string {
+	if intent.Kind == SlackEffectSend && !intent.Unfurl {
+		return "slack.effect.payload.send.no_unfurl.v1"
+	}
+	return "slack.effect.payload.v1"
+}
+
+// unfurlColumn is the stored unfurl value: 0 or 1 for a send, NULL otherwise.
+func unfurlColumn(kind SlackEffectKind, unfurl bool) any {
+	if kind != SlackEffectSend {
+		return nil
+	}
+	if unfurl {
+		return 1
+	}
+	return 0
 }
 
 // hashCanonicalSlackEffect retains the established hashes for canonical valid
@@ -609,9 +642,12 @@ func hashSlackEffectFields(operation string, values ...string) string {
 }
 
 func hashSlackEffectInput(target SlackEffectTarget, intent SlackEffectIntent) string {
-	return hashSlackEffectFields("slack.effect.prepare.invalid.v2",
-		target.TeamID, target.ChannelID, string(intent.Kind), intent.TargetMessageTS,
-		intent.ThreadTS, intent.Text, intent.Emoji, intent.OperatorReason, intent.RelatedTaskID)
+	fields := []string{target.TeamID, target.ChannelID, string(intent.Kind), intent.TargetMessageTS,
+		intent.ThreadTS, intent.Text, intent.Emoji, intent.OperatorReason, intent.RelatedTaskID}
+	if payloadHashOperation(intent) != "slack.effect.payload.v1" {
+		fields = append(fields, "no_unfurl")
+	}
+	return hashSlackEffectFields("slack.effect.prepare.invalid.v2", fields...)
 }
 
 func hashSlackEffectRetryInput(predecessorSelector, reason string, confirmDuplicateRisk, reasonValid bool) string {
@@ -867,7 +903,7 @@ func slackEffectMutationResult(effectID string, target SlackEffectTarget, intent
 const slackEffectSelect = `SELECT
 	effect_id,idempotency_key,coalesce(predecessor_effect_id,''),coalesce(related_task_id,''),
 	kind,team_id,channel_id,coalesce(target_message_ts,''),coalesce(thread_ts,''),
-	coalesce(text,''),coalesce(emoji,''),coalesce(operator_reason,''),payload_hash,
+	coalesce(text,''),coalesce(emoji,''),coalesce(operator_reason,''),coalesce(unfurl,0),payload_hash,
 	state,attempt_count,prepared_at_us,submitted_at_us,completed_at_us,
 	coalesce(response_message_ts,''),coalesce(response_file_id,''),coalesce(diagnostic_code,''),
 	created_at_us,updated_at_us
@@ -884,7 +920,7 @@ func scanSlackEffect(scanner slackEffectScanner) (SlackEffect, error) {
 	err := scanner.Scan(
 		&effect.ID, &effect.IdempotencyKey, &effect.PredecessorEffectID, &effect.RelatedTaskID,
 		&effect.Kind, &effect.TeamID, &effect.ChannelID, &effect.TargetMessageTS, &effect.ThreadTS,
-		&effect.Text, &effect.Emoji, &effect.OperatorReason, &effect.PayloadHash,
+		&effect.Text, &effect.Emoji, &effect.OperatorReason, &effect.Unfurl, &effect.PayloadHash,
 		&effect.State, &effect.AttemptCount, &prepared, &submitted, &completed,
 		&effect.ResponseMessageTS, &effect.ResponseFileID, &effect.DiagnosticCode,
 		&created, &updated,

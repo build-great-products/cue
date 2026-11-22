@@ -113,6 +113,10 @@ type PostMessageRequest struct {
 	ThreadTS        Timestamp `json:"thread_ts,omitempty"`
 	Text            string    `json:"text"`
 	ClientMessageID string    `json:"client_message_id"`
+	// Unfurl lets Slack unfurl the message's links and media. When false the
+	// post sets unfurl_links=false and unfurl_media=false; when true it sends
+	// neither parameter and Slack applies its own default.
+	Unfurl bool `json:"unfurl,omitempty"`
 }
 
 type UpdateMessageRequest struct {

@@ -396,3 +396,44 @@ func TestScopeRoutesEachOperationToItsChannelAndRejectsOthers(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// TestSendCarriesUnfurlToSlack: a send effect reaches chat.postMessage with
+// unfurling off unless its intent asks for it, and a retry keeps the choice.
+func TestSendCarriesUnfurlToSlack(t *testing.T) {
+	// The idempotency key is derived in the store, so the test checks the
+	// recorded requests rather than scripting them.
+	web := fake.NewWeb(
+		fake.Step{Operation: fake.PostMessage, Result: slackapi.MessageResult{ChannelID: testTarget.ChannelID, MessageTS: "1700000001.000001"}},
+		fake.Step{Operation: fake.PostMessage, Result: slackapi.MessageResult{ChannelID: testTarget.ChannelID, MessageTS: "1700000002.000001"}},
+		fake.Step{Operation: fake.PostMessage, Err: slackapi.NewExternalError(slackapi.ReasonRejected, slackapi.DiagnosticRejected, "", nil)},
+		fake.Step{Operation: fake.PostMessage, Result: slackapi.MessageResult{ChannelID: testTarget.ChannelID, MessageTS: "1700000003.000001"}},
+	)
+	svc, _ := testService(t, web)
+	ctx := context.Background()
+	plain, err := svc.Execute(ctx, "send-default", testTarget.ChannelID, store.SlackEffectIntent{Kind: store.SlackEffectSend, Text: "see https://example.com"})
+	if err != nil || plain.Unfurl {
+		t.Fatalf("default send = %+v, %v", plain, err)
+	}
+	unfurled, err := svc.Execute(ctx, "send-unfurl", testTarget.ChannelID, store.SlackEffectIntent{Kind: store.SlackEffectSend, Text: "see https://example.com", Unfurl: true})
+	if err != nil || !unfurled.Unfurl {
+		t.Fatalf("unfurl send = %+v, %v", unfurled, err)
+	}
+	failed, err := svc.Execute(ctx, "send-unfurl-fails", testTarget.ChannelID, store.SlackEffectIntent{Kind: store.SlackEffectSend, Text: "retry me", Unfurl: true})
+	if err == nil || failed.State != store.SlackEffectFailed {
+		t.Fatalf("failing send = %+v, %v", failed, err)
+	}
+	retried, err := svc.Retry(ctx, "send-unfurl-retry", failed.ID, "try again", false)
+	if err != nil || !retried.Unfurl || retried.State != store.SlackEffectConfirmed {
+		t.Fatalf("retry = %+v, %v", retried, err)
+	}
+	if err := web.AssertDone(); err != nil {
+		t.Fatal(err)
+	}
+	calls := web.Calls()
+	for i, want := range []bool{false, true, true, true} {
+		got := calls[i].Request.(slackapi.PostMessageRequest)
+		if got.Unfurl != want {
+			t.Errorf("call %d Unfurl=%v want %v (%+v)", i, got.Unfurl, want, got)
+		}
+	}
+}

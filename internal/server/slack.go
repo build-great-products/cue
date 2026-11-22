@@ -390,7 +390,7 @@ func effectIntent(command string, p protocol.Request) (store.SlackEffectIntent, 
 		if err := jsonUnmarshal(p.Params, &x); err != nil {
 			return i, "", err
 		}
-		i, channel = store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: x.ThreadTS, Text: x.Text, RelatedTaskID: x.Task}, x.Channel
+		i, channel = store.SlackEffectIntent{Kind: store.SlackEffectSend, ThreadTS: x.ThreadTS, Text: x.Text, RelatedTaskID: x.Task, Unfurl: x.Unfurl}, x.Channel
 	case "slack.edit":
 		var x protocol.SlackEditParams
 		jsonUnmarshal(p.Params, &x)

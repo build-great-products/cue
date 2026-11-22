@@ -55,7 +55,7 @@ Start the gateway in the foreground:
 
 Upgrading from Mosscap (the project's previous name): stop the gateway, move `~/.config/mosscap` to `~/.config/cue` and `~/.local/state/mosscap` to `~/.local/state/cue` (or the same names under your `XDG_CONFIG_HOME` and `XDG_STATE_HOME`), rename `mosscap.sqlite3` in the state directory to `cue.sqlite3`, rename `MOSSCAP_SLACK_*_TOKEN` environment variables to `CUE_SLACK_*_TOKEN`, then start `cue gateway run`. The ledger needs no migration. Temporary download files keep the `mosscap-xfr-` prefix because the ledger schema checks it.
 
-Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled. Schema migration 11 adds the `task_sources` table for [named task sources](#feeding-tasks-from-other-systems), and migration 12 adds their optional Slack reply target; both are additive and also one-way, so an older binary refuses the upgraded ledger.
+Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled. Schema migration 11 adds the `task_sources` table for [named task sources](#feeding-tasks-from-other-systems), and migration 12 adds their optional Slack reply target; both are additive and also one-way, so an older binary refuses the upgraded ledger. Migration 13 adds reply adapters, and migration 14 records on each Slack send whether link previews were allowed (existing sends are recorded as allowed, which is how they were posted); both are additive and one-way too.
 
 ## Admission and tasks
 
@@ -228,6 +228,17 @@ cue slack react 1700000000.000001 white_check_mark --task AbCdEfGh
 ```
 
 `task reply` and `task context` always use the task's own channel and thread.
+
+### Link previews
+
+Cue posts without link or media previews: every `slack send` and every `task reply` into Slack sets `unfurl_links=false` and `unfurl_media=false`. Pass `--unfurl` to let Slack unfurl a particular post (Cue then sends neither parameter and Slack decides):
+
+```sh
+cue slack send --channel C0BAQM6JEAJ --text "Demo: https://example.com/video" --unfurl
+cue task reply AbCdEfGh --text "See https://example.com/notes" --unfurl --done
+```
+
+The choice is recorded on the send effect (`"unfurl": false` or `true` in `effect inspect --json`), so an ambiguous post shows what was sent, and retrying with the same `--request-id` but a different choice fails as a conflict, like changing the text. `--unfurl` cannot be combined with `--file`, and is refused for a task that replies through a reply adapter. A CLI with this behaviour refuses (exit 9) to post through an older gateway, which would let Slack unfurl.
 
 ## Files and exceptional outcomes
 

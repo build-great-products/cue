@@ -26,7 +26,7 @@ import (
 )
 
 const (
-	SchemaVersion      = 13
+	SchemaVersion      = 14
 	ApplicationID      = 0x4d435030 // "MCP0"
 	RequestRetention   = 30 * 24 * time.Hour
 	defaultBusyTimeout = 5 * time.Second
@@ -70,6 +70,9 @@ var migration0012 []byte
 
 //go:embed migrations/0013_reply_adapters.sql
 var migration0013 []byte
+
+//go:embed migrations/0014_send_unfurl.sql
+var migration0014 []byte
 
 var (
 	ErrIncompatibleSchema = errors.New("incompatible SQLite schema")
@@ -174,6 +177,8 @@ func migrationChecksum(version int) string {
 		migration = migration0012
 	case 13:
 		migration = migration0013
+	case 14:
+		migration = migration0014
 	default:
 		return ""
 	}
@@ -356,7 +361,7 @@ func (s *Store) initialize(ctx context.Context, created bool) error {
 	for _, migration := range []struct {
 		version int
 		sql     []byte
-	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}, {12, migration0012}, {13, migration0013}} {
+	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}, {12, migration0012}, {13, migration0013}, {14, migration0014}} {
 		if _, err = tx.ExecContext(ctx, string(migration.sql)); err != nil {
 			return err
 		}
@@ -394,7 +399,7 @@ func (s *Store) upgrade(ctx context.Context, fromVersion int) error {
 	if err := compatibleVersion(ctx, tx, fromVersion); err != nil {
 		return err
 	}
-	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011, 12: migration0012, 13: migration0013}
+	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011, 12: migration0012, 13: migration0013, 14: migration0014}
 	for version := fromVersion + 1; version <= SchemaVersion; version++ {
 		migration, ok := migrations[version]
 		if !ok {
@@ -515,7 +520,7 @@ func expectedSchemaFingerprints(ctx context.Context, version int) (map[string]st
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013}
+	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014}
 	if version < 1 || version > len(migrations) {
 		return nil, errors.New("unknown schema version")
 	}

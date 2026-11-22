@@ -132,7 +132,7 @@ func TestOpenUpgradeV11AddsReplyTargets(t *testing.T) {
 	}
 	defer s.Close()
 	var version int
-	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion != 13 {
+	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion != 14 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	got, err := s.Get(context.Background(), "tsk_v11_task")

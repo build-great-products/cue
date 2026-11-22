@@ -65,7 +65,9 @@ func TestSlackEffectPrepareReplayCanonicalHashAndCompactResult(t *testing.T) {
 	if effect.Text != "hello\nworld" || effect.ThreadTS != intent.ThreadTS || len(effect.PayloadHash) != 64 || len(effect.IdempotencyKey) != 64 {
 		t.Fatalf("canonical effect=%+v", effect)
 	}
-	wantPayloadHash := hash("slack.effect.payload.v1", "send", effectTestTarget.TeamID, effectTestTarget.ChannelID, "", intent.ThreadTS, "hello\nworld", "")
+	// A send without unfurling (the default) has its own payload operation;
+	// a send with Unfurl keeps the established v1 hash.
+	wantPayloadHash := hash("slack.effect.payload.send.no_unfurl.v1", "send", effectTestTarget.TeamID, effectTestTarget.ChannelID, "", intent.ThreadTS, "hello\nworld", "")
 	wantKey := hash("slack.effect.idempotency.v1", "effect-send", wantPayloadHash)
 	if effect.PayloadHash != wantPayloadHash || effect.IdempotencyKey != wantKey {
 		t.Fatalf("hash=%q key=%q", effect.PayloadHash, effect.IdempotencyKey)

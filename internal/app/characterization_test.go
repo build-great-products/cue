@@ -87,6 +87,8 @@ func TestGatewayRequestConstructionCharacterization(t *testing.T) {
 		{"slack history", []string{"slack", "history", "--limit", "17", "--cursor", "history-cursor"}, protocol.CapabilitySlackPagination, "slack.history", "req_slack_history", protocol.SlackHistoryParams{Limit: 17, Cursor: "history-cursor"}},
 		{"slack thread", []string{"slack", "thread", "1700000000.000001", "--limit", "18", "--cursor", "thread-cursor"}, protocol.CapabilitySlackPagination, "slack.thread", "req_slack_thread", protocol.SlackThreadParams{ThreadTS: "1700000000.000001", Limit: 18, Cursor: "thread-cursor"}},
 		{"slack send", []string{"slack", "send", "--thread", "1700000000.000001", "--text", "hello", "--task", "abcdefghijklmnopqrstuv", "--request-id", "req_characterization_send"}, protocol.CapabilitySlackEffects, "slack.send", "req_characterization_send", protocol.SlackSendParams{ThreadTS: "1700000000.000001", Text: "hello", Task: "abcdefghijklmnopqrstuv"}},
+		{"task reply unfurl", []string{"task", "reply", "abcdefghijklmnopqrstuv", "--text", "see https://example.com", "--unfurl", "--request-id", "req_characterization_reply_unfurl"}, protocol.CapabilityTaskReply, "task.reply", "req_characterization_reply_unfurl", protocol.TaskReplyParams{Task: "abcdefghijklmnopqrstuv", Text: "see https://example.com", Unfurl: true}},
+		{"slack send unfurl", []string{"slack", "send", "--task", "abcdefghijklmnopqrstuv", "--text", "see https://example.com", "--unfurl", "--request-id", "req_characterization_send_unfurl"}, protocol.CapabilitySlackEffects, "slack.send", "req_characterization_send_unfurl", protocol.SlackSendParams{Task: "abcdefghijklmnopqrstuv", Text: "see https://example.com", Unfurl: true}},
 		{"slack send attachment", []string{"slack", "send", "--text", "hello", "--file", attachment, "--request-id", "req_characterization_send_attachment"}, protocol.CapabilityFileTransfer, "slack.send", "req_characterization_send_attachment", protocol.SlackSendParams{Text: "hello", FilePaths: []string{attachment}}},
 		{"slack edit selector before flags", []string{"slack", "edit", "1700000000.000002", "--text", "revised", "--request-id", "req_characterization_edit"}, protocol.CapabilitySlackEffects, "slack.edit", "req_characterization_edit", protocol.SlackEditParams{MessageTS: "1700000000.000002", Text: "revised"}},
 		{"slack delete selector before flags", []string{"slack", "delete", "1700000000.000002", "--reason", "cleanup", "--request-id", "req_characterization_delete"}, protocol.CapabilitySlackEffects, "slack.delete", "req_characterization_delete", protocol.SlackDeleteParams{MessageTS: "1700000000.000002", Reason: "cleanup"}},
@@ -98,7 +100,9 @@ func TestGatewayRequestConstructionCharacterization(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			requests := serveCharacterizationGateway(t, endpoint, tc.capability)
+			// Every current gateway also advertises slack_unfurl_v1, which
+			// text posts require.
+			requests := serveCharacterizationGatewayWith(t, endpoint, []string{tc.capability, protocol.CapabilitySlackUnfurl})
 			var stdout, stderr bytes.Buffer
 			exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), tc.args)
 			if exit != ExitSuccess {
@@ -272,4 +276,45 @@ func serveCharacterizationGatewayWith(t *testing.T, endpoint string, capabilitie
 		}
 	}()
 	return requests
+}
+
+// TestTextPostsRequireUnfurlCapability proves a new CLI refuses an older
+// gateway for every text post, with or without --unfurl: such a gateway would
+// let Slack unfurl a post that Cue now sends without unfurling.
+func TestTextPostsRequireUnfurlCapability(t *testing.T) {
+	endpoint := characterizationEndpoint(t)
+	for _, tc := range []struct {
+		name       string
+		args       []string
+		capability string
+	}{
+		{"slack send default", []string{"slack", "send", "--task", "abcdefghijklmnopqrstuv", "--text", "hello", "--request-id", "req_old_send"}, protocol.CapabilitySlackEffects},
+		{"slack send unfurl", []string{"slack", "send", "--task", "abcdefghijklmnopqrstuv", "--text", "hello", "--unfurl", "--request-id", "req_old_send_unfurl"}, protocol.CapabilitySlackEffects},
+		{"task reply default", []string{"task", "reply", "abcdefghijklmnopqrstuv", "--text", "hello", "--request-id", "req_old_reply"}, protocol.CapabilityTaskReply},
+		{"task reply unfurl", []string{"task", "reply", "abcdefghijklmnopqrstuv", "--text", "hello", "--unfurl", "--request-id", "req_old_reply_unfurl"}, protocol.CapabilityTaskReply},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			_ = serveCharacterizationGatewayWith(t, endpoint, []string{tc.capability})
+			var stdout, stderr bytes.Buffer
+			exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), tc.args)
+			if exit != ExitUnsupported || !strings.Contains(stderr.String(), protocol.CapabilitySlackUnfurl) {
+				t.Fatalf("old gateway exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+			}
+		})
+	}
+}
+
+// TestSlackSendUnfurlRejectsFilesLocally: --unfurl applies only to a text
+// post, so it is a usage error with --file, before any gateway contact.
+func TestSlackSendUnfurlRejectsFilesLocally(t *testing.T) {
+	_ = characterizationEndpoint(t) // valid config, no listener
+	attachment := filepath.Join(t.TempDir(), "attachment.txt")
+	if err := os.WriteFile(attachment, []byte("attachment"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	var stdout, stderr bytes.Buffer
+	exit := (App{Out: &stdout, Err: &stderr, Version: "characterization"}).Run(context.Background(), []string{"slack", "send", "--text", "hello", "--file", attachment, "--unfurl"})
+	if exit != ExitUsage || !strings.Contains(stderr.String(), "--unfurl") {
+		t.Fatalf("exit=%d stdout=%q stderr=%q", exit, stdout.String(), stderr.String())
+	}
 }

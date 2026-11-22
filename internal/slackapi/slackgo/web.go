@@ -342,6 +342,9 @@ func (web *Web) PostMessage(ctx context.Context, request slackapi.PostMessageReq
 	if request.ThreadTS != "" {
 		options = append(options, slack.MsgOptionTS(string(request.ThreadTS)))
 	}
+	if !request.Unfurl {
+		options = append(options, slack.MsgOptionDisableLinkUnfurl(), slack.MsgOptionDisableMediaUnfurl())
+	}
 	// slack-go v0.27.0's Web API surface has no client_msg_id option. The
 	// durable request ID is therefore validated here but cannot be attached.
 	channelID, timestamp, err := web.client.PostMessageContext(ctx, request.ChannelID, options...)

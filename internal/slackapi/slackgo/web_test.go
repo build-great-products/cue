@@ -409,3 +409,46 @@ func writeJSON(t *testing.T, writer http.ResponseWriter, value any) {
 		t.Errorf("encode response: %v", err)
 	}
 }
+
+// TestPostMessageUnfurlParameters: a post turns unfurling off by default
+// (unfurl_links=false and unfurl_media=false); with Unfurl it sends neither
+// parameter, so Slack applies its own default.
+func TestPostMessageUnfurlParameters(t *testing.T) {
+	t.Parallel()
+	forms := make(chan url.Values, 2)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := request.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		writer.Header().Set("Content-Type", "application/json")
+		if request.URL.Path != "/chat.postMessage" {
+			http.NotFound(writer, request)
+			return
+		}
+		forms <- request.Form
+		writeJSON(t, writer, map[string]any{"ok": true, "channel": "C012ABC", "ts": "1700000000.000002"})
+	}))
+	defer server.Close()
+	web := NewWeb("xoxb-test-canary", WebAPIURL(server.URL))
+	request := slackapi.PostMessageRequest{ChannelID: "C012ABC", Text: "see https://example.com", ClientMessageID: "eff_123"}
+
+	if _, err := web.PostMessage(context.Background(), request); err != nil {
+		t.Fatalf("default PostMessage: %v", err)
+	}
+	form := <-forms
+	requireForm(t, form, "unfurl_links", "false")
+	requireForm(t, form, "unfurl_media", "false")
+
+	request.Unfurl = true
+	if _, err := web.PostMessage(context.Background(), request); err != nil {
+		t.Fatalf("unfurl PostMessage: %v", err)
+	}
+	form = <-forms
+	if _, ok := form["unfurl_links"]; ok {
+		t.Errorf("unfurl post sent unfurl_links=%q", form.Get("unfurl_links"))
+	}
+	if _, ok := form["unfurl_media"]; ok {
+		t.Errorf("unfurl post sent unfurl_media=%q", form.Get("unfurl_media"))
+	}
+	requireForm(t, form, "text", "see https://example.com")
+}

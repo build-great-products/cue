@@ -27,7 +27,7 @@ func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
 // taskTyped binds Cobra's already-parsed task leaves directly to protocol DTOs.
 // It retains the established task request IDs, text-file safety, and
 // mutation JSON envelope.
-func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done bool, requestID, cursor string, jsonOut bool, origin taskOrigin) error {
+func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done, unfurl bool, requestID, cursor string, jsonOut bool, origin taskOrigin) error {
 	mutation := command == "create" || command == "update" || command == "open" || command == "working" || command == "done" || command == "reply"
 	var params any
 
@@ -91,7 +91,7 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		if err != nil {
 			return err
 		}
-		params = protocol.TaskReplyParams{Task: selector, Text: body, Done: done}
+		params = protocol.TaskReplyParams{Task: selector, Text: body, Done: done, Unfurl: unfurl}
 	default:
 		return fmt.Errorf("unbound typed task command %q", command)
 	}
@@ -119,7 +119,9 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 	}
 	capabilities := []string{protocol.CapabilityLocalTasks}
 	if command == "reply" {
-		capabilities = []string{protocol.CapabilityTaskReply}
+		// Every reply needs slack_unfurl_v1, not only --unfurl: an older
+		// gateway would let Slack unfurl a reply Cue now posts without.
+		capabilities = []string{protocol.CapabilityTaskReply, protocol.CapabilitySlackUnfurl}
 	}
 	if origin.Source != "" {
 		capabilities = append(capabilities, protocol.CapabilityTaskSources)

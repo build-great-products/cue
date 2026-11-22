@@ -54,9 +54,15 @@ const (
 	// name for a named source, task DTOs carry it, and task.reply runs the
 	// configured adapter for such a local task.
 	CapabilityTaskReplyAdapters = "task_reply_adapters_v1"
+	// CapabilitySlackUnfurl means every message post (slack.send and a
+	// task.reply into Slack) sets unfurl_links=false and unfurl_media=false
+	// unless the request's Unfurl is true, and send effects record the
+	// choice. A client needs it before any post, so a new CLI never silently
+	// unfurls through an older gateway.
+	CapabilitySlackUnfurl = "slack_unfurl_v1"
 )
 
-var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskReplyAdapters}
+var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskReplyAdapters, CapabilitySlackUnfurl}
 
 var (
 	ErrEmptyFrame    = errors.New("protocol: empty frame")
@@ -186,6 +192,9 @@ type TaskReplyParams struct {
 	Task string `json:"task"`
 	Text string `json:"text"`
 	Done bool   `json:"done,omitempty"`
+	// Unfurl lets Slack unfurl the reply's links and media (requires
+	// slack_unfurl_v1). It is refused for a task answered by a reply adapter.
+	Unfurl bool `json:"unfurl,omitempty"`
 }
 
 // TaskReplyDTO is a reply's outcome: Effect for a Slack reply, or
@@ -292,6 +301,9 @@ type SlackSendParams struct {
 	Text      string   `json:"text"`
 	Task      string   `json:"task,omitempty"`
 	FilePaths []string `json:"file_paths,omitempty"`
+	// Unfurl lets Slack unfurl the message's links and media (requires
+	// slack_unfurl_v1). It applies only to a text post, not with FilePaths.
+	Unfurl bool `json:"unfurl,omitempty"`
 }
 type SlackFileParams struct {
 	Channel  string `json:"channel,omitempty"`
@@ -469,6 +481,9 @@ type SlackEffectDTO struct {
 	CompletedAt         *string `json:"completed_at,omitempty"`
 	ResponseMessageTS   string  `json:"response_message_ts,omitempty"`
 	DiagnosticCode      string  `json:"diagnostic_code,omitempty"`
+	// Unfurl is set only for a send: whether Slack was allowed to unfurl its
+	// links and media.
+	Unfurl *bool `json:"unfurl,omitempty"`
 }
 type SlackEffectIntentDTO struct {
 	Text           string `json:"text,omitempty"`
@@ -753,6 +768,9 @@ func ValidateParams(command string, raw json.RawMessage) error {
 	case *SlackSendParams:
 		if !validChannel(p.Channel) || (p.ThreadTS != "" && !validTimestamp(p.ThreadTS)) || !validText(p.Text, true) || !validTask(p.Task) || !validPaths(p.FilePaths) {
 			return errors.New("invalid Slack send")
+		}
+		if p.Unfurl && len(p.FilePaths) != 0 {
+			return errors.New("invalid Slack send: unfurl applies only to a text post, not to file uploads")
 		}
 	case *SlackFileParams:
 		if !validChannel(p.Channel) || (p.ThreadTS != "" && !validTimestamp(p.ThreadTS)) || !validPath(p.FilePath) || !validText(p.Comment, false) || !validTask(p.Task) {

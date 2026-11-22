@@ -24,6 +24,10 @@ const (
 // configuration does not define.
 var errReplyAdapterNotConfigured = errors.New("reply adapter is not configured")
 
+// errUnfurlNotSlack refuses --unfurl on a reply that a reply adapter, not
+// Slack, delivers: the adapter gets only text, so the choice would be lost.
+var errUnfurlNotSlack = errors.New("unfurl applies only to a reply posted to Slack; this task replies through a reply adapter")
+
 // replyAdapterError is a reply adapter run that did not confirm.
 type replyAdapterError struct {
 	effect store.ReplyAdapterEffect
@@ -59,6 +63,9 @@ type replyAdapterInputTask struct {
 // replyViaAdapter durably runs a task's reply adapter once for p.Text and,
 // with p.Done, completes the task only after the adapter confirmed.
 func (s *Server) replyViaAdapter(ctx context.Context, requestID string, p protocol.TaskReplyParams, t store.Task, adapter string) (protocol.TaskReplyDTO, error) {
+	if p.Unfurl {
+		return protocol.TaskReplyDTO{}, errUnfurlNotSlack
+	}
 	configured, ok := s.snapshot().ReplyAdapters[adapter]
 	if !ok {
 		return protocol.TaskReplyDTO{}, errReplyAdapterNotConfigured
