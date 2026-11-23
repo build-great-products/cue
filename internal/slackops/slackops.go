@@ -19,8 +19,12 @@ import (
 const maxUploadFiles = 20
 
 var (
-	ErrUnavailable   = errors.New("Slack operations are unavailable")
-	ErrInvalidTarget = errors.New("Slack target is not a C... or G... channel in the active workspace")
+	ErrUnavailable = errors.New("Slack operations are unavailable")
+	// ErrInvalidResponse is a history or thread read whose Slack response Cue
+	// could not accept: malformed, oversized, or outside the page bounds. Slack
+	// answered, so this is not an availability problem.
+	ErrInvalidResponse = errors.New("Slack returned a response Cue could not read")
+	ErrInvalidTarget   = errors.New("Slack target is not a C... or G... channel in the active workspace")
 )
 
 // EffectStore is the narrow durable boundary used by Service.
@@ -137,7 +141,7 @@ func (s *Service) History(ctx context.Context, channelID string, limit int, curs
 	}
 	page, err := s.web.History(ctx, slackapi.HistoryRequest{ChannelID: channelID, Limit: limit, Cursor: cursor})
 	if err != nil {
-		return slackapi.MessagePage{}, readError(err)
+		return slackapi.MessagePage{}, pageReadError(err)
 	}
 	return page, nil
 }
@@ -163,7 +167,7 @@ func (s *Service) Thread(ctx context.Context, channelID, threadTS string, limit 
 	}
 	page, err := s.web.Replies(ctx, slackapi.RepliesRequest{ChannelID: channelID, ThreadTS: ts, Limit: limit, Cursor: cursor})
 	if err != nil {
-		return slackapi.MessagePage{}, readError(err)
+		return slackapi.MessagePage{}, pageReadError(err)
 	}
 	return page, nil
 }
@@ -538,6 +542,16 @@ func readError(err error) error {
 		return &FailureError{State: store.SlackEffectFailed, Diagnostic: storeDiagnostic(slackapi.Classify(err, slackapi.FailureRead).Diagnostic)}
 	}
 	return ErrUnavailable
+}
+
+// pageReadError maps a failed history or thread read. Unlike readError, it
+// keeps an unreadable response apart from an unavailable Slack, so a reader
+// sees what failed instead of a misleading slack_unavailable.
+func pageReadError(err error) error {
+	if slackapi.Classify(err, slackapi.FailureRead).Diagnostic == slackapi.DiagnosticMalformedResponse {
+		return ErrInvalidResponse
+	}
+	return readError(err)
 }
 func terminalError(effect store.SlackEffect) error {
 	switch effect.State {

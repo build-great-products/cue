@@ -20,6 +20,7 @@ import (
 	"github.com/build-great-products/cue/internal/protocol"
 	"github.com/build-great-products/cue/internal/slackapi"
 	"github.com/build-great-products/cue/internal/slackapi/fake"
+	"github.com/build-great-products/cue/internal/slackops"
 	"github.com/build-great-products/cue/internal/slackruntime"
 	"github.com/build-great-products/cue/internal/store"
 	"github.com/build-great-products/cue/internal/task"
@@ -60,6 +61,17 @@ func TestMetadataPurgeGenericAfterDeleteFailureMapsToRetriableZeroProgress(t *te
 	})
 	if r.Error == nil || r.Error.Code != "purge_interrupted" || !r.Error.Retriable || r.Error.Progress == nil || r.Error.Progress.Removed != (protocol.PurgeCountsDTO{}) {
 		t.Fatalf("response = %#v", r)
+	}
+}
+
+func TestUnreadableSlackResponseHasItsOwnCode(t *testing.T) {
+	r := errorResponse("req_server_invalid_response", "test", slackops.ErrInvalidResponse)
+	if r.Error == nil || r.Error.Code != "slack_invalid_response" || r.Error.Category != "external_failed" {
+		t.Fatalf("response = %#v", r.Error)
+	}
+	r = errorResponse("req_server_unavailable", "test", slackops.ErrUnavailable)
+	if r.Error == nil || r.Error.Code != "slack_unavailable" || r.Error.Category != "unavailable" {
+		t.Fatalf("response = %#v", r.Error)
 	}
 }
 

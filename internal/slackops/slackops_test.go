@@ -68,6 +68,38 @@ func TestReadsUseConfiguredChannelAndBounds(t *testing.T) {
 	}
 }
 
+// TestPageReadErrorsSayWhatFailed: an unreadable Slack response on a history
+// or thread read is reported as such, not as Slack being unavailable.
+func TestPageReadErrorsSayWhatFailed(t *testing.T) {
+	malformed := slackapi.NewExternalError(slackapi.ReasonInvalidResponse, slackapi.DiagnosticMalformedResponse, "", nil)
+	down := slackapi.NewExternalError(slackapi.ReasonUnavailable, slackapi.DiagnosticUnavailable, "", nil)
+	rejected := slackapi.NewExternalError(slackapi.ReasonRejected, slackapi.DiagnosticChannelNotFound, "", nil)
+	thread := slackapi.RepliesRequest{ChannelID: testTarget.ChannelID, ThreadTS: "1700000000.000001", Limit: 50}
+	web := fake.NewWeb(
+		fake.Step{Operation: fake.Replies, Request: thread, Err: malformed},
+		fake.Step{Operation: fake.History, Request: slackapi.HistoryRequest{ChannelID: testTarget.ChannelID, Limit: 50}, Err: malformed},
+		fake.Step{Operation: fake.Replies, Request: thread, Err: down},
+		fake.Step{Operation: fake.Replies, Request: thread, Err: rejected},
+	)
+	svc, _ := testService(t, web)
+	if _, err := svc.Thread(context.Background(), testTarget.ChannelID, "1700000000.000001", 0, ""); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("malformed thread = %v", err)
+	}
+	if _, err := svc.History(context.Background(), testTarget.ChannelID, 0, ""); !errors.Is(err, ErrInvalidResponse) {
+		t.Fatalf("malformed history = %v", err)
+	}
+	if _, err := svc.Thread(context.Background(), testTarget.ChannelID, "1700000000.000001", 0, ""); !errors.Is(err, ErrUnavailable) {
+		t.Fatalf("unavailable thread = %v", err)
+	}
+	var failure *FailureError
+	if _, err := svc.Thread(context.Background(), testTarget.ChannelID, "1700000000.000001", 0, ""); !errors.As(err, &failure) {
+		t.Fatalf("rejected thread = %v", err)
+	}
+	if err := web.AssertDone(); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestExecuteMappingsAndSubmittedBeforeWrite(t *testing.T) {
 	barrier := fake.NewBarrier()
 	web := fake.NewWeb(

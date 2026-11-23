@@ -820,6 +820,9 @@ func (s *Server) taskContext(ctx context.Context, p protocol.TaskContextParams) 
 	page, readErr := op.Thread(ctx, model.SlackSource.ChannelID, model.SlackSource.ThreadTS, limit, "")
 	if readErr != nil {
 		out.Thread.Status, out.Thread.DiagnosticCode = "unavailable", string(slackapi.Classify(readErr, slackapi.FailureRead).Diagnostic)
+		if errors.Is(readErr, slackops.ErrInvalidResponse) {
+			out.Thread.DiagnosticCode = "slack_invalid_response"
+		}
 		out.Warnings = []string{"Slack thread was unavailable"}
 		return out, nil
 	}
@@ -1203,6 +1206,8 @@ func errorResponse(id, version string, err error) protocol.Response {
 		code, category = "channel_required", "usage"
 	case errors.Is(err, slackops.ErrUnavailable), errors.Is(err, slackruntime.ErrClosed):
 		code, category = "slack_unavailable", "unavailable"
+	case errors.Is(err, slackops.ErrInvalidResponse):
+		code, category = "slack_invalid_response", "external_failed"
 	case errors.Is(err, errReplyAdapterNotConfigured):
 		code, category = "reply_adapter_not_configured", "usage"
 	case errors.Is(err, errUnfurlNotSlack):

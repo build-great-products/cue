@@ -1,0 +1,44 @@
+{
+  "ok": true,
+  "messages": [
+    {
+      "type": "message",
+      "user": "U0PARENT1",
+      "text": "parent text",
+      "ts": "1794958542.266959",
+      "thread_ts": "1794958542.266959",
+      "reply_count": 108,
+      "reply_users_count": 3,
+      "latest_reply": "1795408177.256309",
+      "reply_users": ["U0PARENT1", "U0BOTUSR1", "U0HUMAN01"],
+      "is_locked": false,
+      "subscribed": true,
+      "reactions": [{"name": "eyes", "users": ["U0BOTUSR1"], "count": 1}]
+    },
+    {
+      "type": "message",
+      "user": "U0HUMAN01",
+      "bot_id": "B0HOOKBOT",
+      "app_id": "A0HOOKAPP",
+      "text": "reply text",
+      "ts": "1795408121.389729",
+      "thread_ts": "1794958542.266959",
+      "parent_user_id": "U0PARENT1",
+      "bot_profile": {"id": "B0HOOKBOT", "name": "placeholder bot", "app_id": "A0HOOKAPP", "deleted": false}
+    },
+    {
+      "type": "message",
+      "user": "U0BOTUSR1",
+      "bot_id": "B0BOTUSR1",
+      "text": "",
+      "ts": "1795408177.256309",
+      "thread_ts": "1794958542.266959",
+      "parent_user_id": "U0PARENT1",
+      "display_as_bot": false,
+      "upload": false,
+      "files": [{"id": "F0SHOT001", "name": "shot.png", "mimetype": "image/png", "permalink": "https://example.slack.com/files/U0BOTUSR1/F0SHOT001/shot.png", "size": 1024}]
+    }
+  ],
+  "has_more": true,
+  "response_metadata": {"next_cursor": "bmV4dF90czoxNzk1MDQzNDM4OTk3MDk5"}
+}

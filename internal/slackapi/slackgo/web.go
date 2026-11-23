@@ -325,10 +325,21 @@ func (web *Web) Replies(ctx context.Context, request slackapi.RepliesRequest) (s
 	if err != nil {
 		return slackapi.MessagePage{}, sanitizeError(err)
 	}
-	if len(messages) > request.Limit || len(messages) > slackapi.MaxReadLimit {
+	if !repliesPageWithinLimit(messages, request) {
 		return slackapi.MessagePage{}, invalidResponse()
 	}
 	return web.messagePage(messages, cursor)
+}
+
+// repliesPageWithinLimit bounds a conversations.replies page. Slack puts the
+// thread's parent message ahead of up to limit replies on every page,
+// including pages after the first, so a page may hold limit+1 messages, but
+// only when its first message is that parent.
+func repliesPageWithinLimit(messages []slack.Message, request slackapi.RepliesRequest) bool {
+	if len(messages) <= request.Limit {
+		return true
+	}
+	return len(messages) == request.Limit+1 && messages[0].Timestamp == string(request.ThreadTS)
 }
 
 func (web *Web) PostMessage(ctx context.Context, request slackapi.PostMessageRequest) (slackapi.MessageResult, error) {

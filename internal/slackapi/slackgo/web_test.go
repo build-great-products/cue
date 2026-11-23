@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -451,4 +452,67 @@ func TestPostMessageUnfurlParameters(t *testing.T) {
 		t.Errorf("unfurl post sent unfurl_media=%q", form.Get("unfurl_media"))
 	}
 	requireForm(t, form, "text", "see https://example.com")
+}
+
+// TestRepliesAcceptsParentAheadOfFullPage: conversations.replies puts the
+// thread's parent ahead of up to limit replies on every page, so a thread with
+// at least limit replies returns limit+1 messages. Cue rejected that page as
+// malformed, and every read of a long thread failed as Slack unavailable.
+func TestRepliesAcceptsParentAheadOfFullPage(t *testing.T) {
+	t.Parallel()
+	fixture, err := os.ReadFile("testdata/replies_parent_plus_limit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		if err := request.ParseForm(); err != nil {
+			t.Errorf("parse form: %v", err)
+		}
+		requireForm(t, request.Form, "limit", "2")
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(fixture)
+	}))
+	defer server.Close()
+	web := NewWeb("xoxb-test", WebAPIURL(server.URL))
+	page, err := web.Replies(context.Background(), slackapi.RepliesRequest{ChannelID: "C012ABC", ThreadTS: "1794958542.266959", Limit: 2})
+	if err != nil {
+		t.Fatalf("Replies: %v", err)
+	}
+	want := []slackapi.Timestamp{"1794958542.266959", "1795408121.389729", "1795408177.256309"}
+	if len(page.Messages) != len(want) || page.NextCursor != "bmV4dF90czoxNzk1MDQzNDM4OTk3MDk5" {
+		t.Fatalf("page = %#v", page)
+	}
+	for i, ts := range want {
+		if page.Messages[i].MessageTS != ts || page.Messages[i].ThreadTS != "1794958542.266959" {
+			t.Fatalf("message %d = %#v", i, page.Messages[i])
+		}
+	}
+	if page.Messages[2].AuthorID != "U0BOTUSR1" || len(page.Messages[2].Files) != 1 {
+		t.Fatalf("file share = %#v", page.Messages[2])
+	}
+}
+
+// TestRepliesRejectsPagesBeyondTheParentAllowance: only the parent may exceed
+// the requested limit, and only by one message.
+func TestRepliesRejectsPagesBeyondTheParentAllowance(t *testing.T) {
+	t.Parallel()
+	fixture, err := os.ReadFile("testdata/replies_parent_plus_limit.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.Header().Set("Content-Type", "application/json")
+		_, _ = writer.Write(fixture)
+	}))
+	defer server.Close()
+	web := NewWeb("xoxb-test", WebAPIURL(server.URL))
+	for name, request := range map[string]slackapi.RepliesRequest{
+		"two over the limit":       {ChannelID: "C012ABC", ThreadTS: "1794958542.266959", Limit: 1},
+		"first message not parent": {ChannelID: "C012ABC", ThreadTS: "1795408121.389729", Limit: 2},
+	} {
+		_, err := web.Replies(context.Background(), request)
+		if failure := slackapi.Classify(err, slackapi.FailureRead); failure.Diagnostic != slackapi.DiagnosticMalformedResponse {
+			t.Errorf("%s: classification = %#v (%v)", name, failure, err)
+		}
+	}
 }
