@@ -20,6 +20,7 @@ import (
 	"time"
 
 	"github.com/BurntSushi/toml"
+	"github.com/build-great-products/cue/internal/format"
 	"github.com/build-great-products/cue/internal/securepath"
 	"github.com/build-great-products/cue/internal/store"
 )
@@ -49,7 +50,25 @@ type Config struct {
 	// EventHooks are commands told about Slack message and reaction events.
 	// Optional; keyed by name.
 	EventHooks map[string]EventHook `toml:"event_hooks" json:"event_hooks,omitempty"`
-	Paths      Paths                `toml:"-" json:"paths"`
+	// Formatting is the outgoing-message formatting rule list. Optional;
+	// FormatRules supplies the defaults when it is absent.
+	Formatting *Formatting `toml:"formatting" json:"formatting,omitempty"`
+	Paths      Paths       `toml:"-" json:"paths"`
+}
+
+// Formatting is the [formatting] table: an ordered list of rules applied to
+// every message Cue posts. rules = [] turns formatting off.
+type Formatting struct {
+	Rules []format.RuleConfig `toml:"rules" json:"rules"`
+}
+
+// FormatRules is the effective formatting rule list: the configured one, or
+// format.DefaultRules when config.toml has no [formatting] table.
+func (c Config) FormatRules() []format.RuleConfig {
+	if c.Formatting == nil {
+		return format.DefaultRules()
+	}
+	return c.Formatting.Rules
 }
 
 // Paths are fixed XDG-derived locations exposed for consumers of Config.
@@ -417,6 +436,12 @@ func decode(loc Location, b []byte) (Config, error) {
 			return Config{}, fmt.Errorf("decode config: missing required key %q", key)
 		}
 	}
+	if c.Formatting != nil && !md.IsDefined("formatting", "rules") {
+		return Config{}, errors.New("decode config: [formatting] needs rules; use rules = [] to turn formatting off")
+	}
+	if c.Formatting != nil && c.Formatting.Rules == nil {
+		c.Formatting.Rules = []format.RuleConfig{}
+	}
 	paths, err := pathsFor(loc)
 	if err != nil {
 		return Config{}, err
@@ -507,7 +532,15 @@ func Validate(c Config) error {
 	if c.LocalProtocolMaximumFrame < 64<<10 || c.LocalProtocolMaximumFrame > 16<<20 {
 		return errors.New("local_protocol_maximum_frame must be between 65536 and 16777216")
 	}
-	return validateCommands(c)
+	if err := validateCommands(c); err != nil {
+		return err
+	}
+	if c.Formatting != nil {
+		if err := format.Validate(c.Formatting.Rules); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func optionalToken(name, value string) error {
@@ -938,6 +971,10 @@ type View struct {
 	// Command paths are not secret.
 	ReplyAdapters map[string]ReplyAdapter `json:"reply_adapters,omitempty"`
 	EventHooks    map[string]EventHook    `json:"event_hooks,omitempty"`
+	// FormattingRules is the effective outgoing formatting rule list, and
+	// FormattingDefault says whether it is the built-in default.
+	FormattingRules   []format.RuleConfig `json:"formatting_rules"`
+	FormattingDefault bool                `json:"formatting_default"`
 }
 
 // Redact returns a structurally token-free configuration view.
@@ -946,5 +983,5 @@ func Redact(c Config) View {
 		c.SlackReconnectInitialBackoff,
 		c.SlackReconnectMaxBackoff, c.SlackReconnectJitter, c.SQLiteBusyTimeout, int64(c.MaximumFileSize),
 		c.MaximumFilesPerSlackOperation, c.TemporaryDownloadLifetime, c.LocalProtocolMaximumFrame,
-		c.ReplyAdapters, c.EventHooks}
+		c.ReplyAdapters, c.EventHooks, c.FormatRules(), c.Formatting == nil}
 }

@@ -335,15 +335,15 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 			}
 			origin = taskOrigin{Source: source, Key: key, URL: link, ReplySlack: reply, ReplyVia: via}
 		}
-		return a.taskTyped(strings.TrimPrefix(handler, "task."), selector, text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin, "", false, 0, "", done, unfurl, requestID, "", jsonOut, origin)
+		return a.taskTyped(strings.TrimPrefix(handler, "task."), selector, text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin, "", false, 0, "", done, unfurl, requestID, "", jsonOut, origin, outgoingFlags(cmd))
 	case "task.list":
 		state, _ := cmd.Flags().GetString("state")
 		all, _ := cmd.Flags().GetBool("all")
 		limit, _ := cmd.Flags().GetInt("limit")
 		cursor, _ := cmd.Flags().GetString("cursor")
-		return a.taskTyped("list", "", "", "", false, false, false, state, all, limit, "", false, false, "", cursor, jsonOut, taskOrigin{})
+		return a.taskTyped("list", "", "", "", false, false, false, state, all, limit, "", false, false, "", cursor, jsonOut, taskOrigin{}, outgoing{})
 	case "task.show":
-		return a.taskTyped("show", args[0], "", "", false, false, false, "", false, 0, "", false, false, "", "", jsonOut, taskOrigin{})
+		return a.taskTyped("show", args[0], "", "", false, false, false, "", false, 0, "", false, false, "", "", jsonOut, taskOrigin{}, outgoing{})
 	case "task.context":
 		limit, _ := cmd.Flags().GetInt("thread-limit")
 		return a.taskContextTyped(args[0], limit, jsonOut)
@@ -357,7 +357,7 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 	case "task.open", "task.working", "task.done":
 		note, _ := cmd.Flags().GetString("note")
 		requestID, _ := cmd.Flags().GetString("request-id")
-		return a.taskTyped(strings.TrimPrefix(handler, "task."), args[0], "", "", false, false, false, "", false, 0, note, false, false, requestID, "", jsonOut, taskOrigin{})
+		return a.taskTyped(strings.TrimPrefix(handler, "task."), args[0], "", "", false, false, false, "", false, 0, note, false, false, requestID, "", jsonOut, taskOrigin{}, outgoing{})
 	case "effect.list":
 		state, _ := cmd.Flags().GetString("state")
 		task, _ := cmd.Flags().GetString("task")
@@ -387,7 +387,7 @@ func (a App) runTypedCobraHandler(handler string, cmd *cobra.Command, args []str
 		comment, _ := cmd.Flags().GetString("comment")
 		task, _ := cmd.Flags().GetString("task")
 		requestID, _ := cmd.Flags().GetString("request-id")
-		return a.slackFileTyped(channel, thread, files, comment, task, requestID, jsonOut)
+		return a.slackFileTyped(channel, thread, files, comment, task, requestID, jsonOut, outgoingFlags(cmd))
 	default:
 		return fmt.Errorf("unbound typed Cobra handler %q", handler)
 	}
@@ -426,12 +426,12 @@ var cobraLeafSpecs = []cobraLeafSpec{
 	{[]string{"task", "open"}, "Move a task to open.", "cue task open TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.open", transitionFlags(), nil},
 	{[]string{"task", "working"}, "Move a task to working.", "cue task working TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.working", transitionFlags(), nil},
 	{[]string{"task", "done"}, "Move a task to done.", "cue task done TASK [--note TEXT] [--request-id ID] [--json]", false, "local_tasks", "task.done", transitionFlags(), nil},
-	{[]string{"task", "reply"}, "Reply to a Slack task, optionally completing it after confirmation.", "cue task reply TASK (--text TEXT|--text-file PATH|--stdin) [--done] [--unfurl] [--request-id ID] [--json]", false, protocol.CapabilityTaskReply, "task.reply", append(textFlags(), boolFlag("done", "Complete only after Slack confirms the reply."), boolFlag("unfurl", "Let Slack unfurl link and media previews; by default Cue posts with unfurl_links=false and unfurl_media=false.")), nil},
+	{[]string{"task", "reply"}, "Reply to a Slack task, optionally completing it after confirmation.", "cue task reply TASK (--text TEXT|--text-file PATH|--stdin) [--done] [--unfurl] [--raw] [--dry-run] [--request-id ID] [--json]", false, protocol.CapabilityTaskReply, "task.reply", append(textFlags(), boolFlag("done", "Complete only after Slack confirms the reply."), boolFlag("unfurl", "Let Slack unfurl link and media previews; by default Cue posts with unfurl_links=false and unfurl_media=false."), rawFlag(), dryRunFlag()), nil},
 	{[]string{"slack", "history"}, "Read a page of recent messages from a Slack channel.", "cue slack history [--channel CHANNEL] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.history", []flagSpec{channelFlag(), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
 	{[]string{"slack", "thread"}, "Read a page of a Slack message thread.", "cue slack thread THREAD_TS [--channel CHANNEL|--task TASK] [--limit N] [--cursor CURSOR] [--json]", true, protocol.CapabilitySlackPagination, "slack.thread", []flagSpec{channelFlag(), stringFlag("task", "Slack task whose channel to read."), intFlag("limit", "Maximum messages to return (default and maximum: 50)."), stringFlag("cursor", "Opaque Slack cursor from the prior page."), boolFlag("json", "Render messages as JSON.")}, nil},
-	{[]string{"slack", "send"}, "Send a Slack message or threaded reply.", "cue slack send [--channel CHANNEL] [--thread THREAD_TS] (--text TEXT|--text-file PATH|--stdin) [--unfurl | --file PATH ...] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.send", append(textFlags(), channelFlag(), stringFlag("thread", "Reply thread timestamp."), stringFlag("task", "Related durable task; also the default channel."), repeatStringFlag("file", "Regular file to upload; repeatable."), boolFlag("unfurl", "Let Slack unfurl link and media previews; by default Cue posts with unfurl_links=false and unfurl_media=false. Not with --file.")), nil},
-	{[]string{"slack", "file"}, "Upload a file to a Slack channel or thread.", "cue slack file [--channel CHANNEL] [--thread THREAD_TS] --file PATH [--comment TEXT] [--task TASK] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "slack.file", []flagSpec{channelFlag(), stringFlag("thread", "Reply thread timestamp."), repeatStringFlag("file", "Regular file to upload."), stringFlag("comment", "Optional file comment."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"file"}},
-	{[]string{"slack", "edit"}, "Replace a Slack message's text.", "cue slack edit MESSAGE_TS [--channel CHANNEL] (--text TEXT|--text-file PATH|--stdin) [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.edit", append(textFlags(), channelFlag(), stringFlag("task", "Related durable task; also the default channel.")), nil},
+	{[]string{"slack", "send"}, "Send a Slack message or threaded reply.", "cue slack send [--channel CHANNEL] [--thread THREAD_TS] (--text TEXT|--text-file PATH|--stdin) [--unfurl | --file PATH ...] [--task TASK] [--raw] [--dry-run] [--request-id ID] [--json]", false, "slack_effects", "slack.send", append(textFlags(), channelFlag(), stringFlag("thread", "Reply thread timestamp."), stringFlag("task", "Related durable task; also the default channel."), repeatStringFlag("file", "Regular file to upload; repeatable."), boolFlag("unfurl", "Let Slack unfurl link and media previews; by default Cue posts with unfurl_links=false and unfurl_media=false. Not with --file."), rawFlag(), dryRunFlag()), nil},
+	{[]string{"slack", "file"}, "Upload a file to a Slack channel or thread.", "cue slack file [--channel CHANNEL] [--thread THREAD_TS] --file PATH [--comment TEXT] [--task TASK] [--raw] [--request-id ID] [--json]", false, protocol.CapabilityFileTransfer, "slack.file", []flagSpec{channelFlag(), stringFlag("thread", "Reply thread timestamp."), repeatStringFlag("file", "Regular file to upload."), stringFlag("comment", "Optional file comment."), stringFlag("task", "Related durable task; also the default channel."), rawFlag(), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"file"}},
+	{[]string{"slack", "edit"}, "Replace a Slack message's text.", "cue slack edit MESSAGE_TS [--channel CHANNEL] (--text TEXT|--text-file PATH|--stdin) [--task TASK] [--raw] [--dry-run] [--request-id ID] [--json]", false, "slack_effects", "slack.edit", append(textFlags(), channelFlag(), stringFlag("task", "Related durable task; also the default channel."), rawFlag(), dryRunFlag()), nil},
 	{[]string{"slack", "delete"}, "Delete a Slack message with an audit reason.", "cue slack delete MESSAGE_TS --reason TEXT [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.delete", []flagSpec{channelFlag(), stringFlag("reason", "Required audit reason."), stringFlag("task", "Related durable task; also the default channel."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}, []string{"reason"}},
 	{[]string{"slack", "react"}, "Add a reaction to a Slack message.", "cue slack react MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.react", taskMutationFlags(), nil},
 	{[]string{"slack", "unreact"}, "Remove a reaction from a Slack message.", "cue slack unreact MESSAGE_TS EMOJI [--channel CHANNEL] [--task TASK] [--request-id ID] [--json]", false, "slack_effects", "slack.unreact", taskMutationFlags(), nil},
@@ -445,6 +445,25 @@ var cobraLeafSpecs = []cobraLeafSpec{
 func textFlags() []flagSpec {
 	return []flagSpec{stringFlag("text", "Literal message text; backslash-n is not decoded."), stringFlag("text-file", "Regular file containing exact message text."), boolFlag("stdin", "Read complete exact message text from standard input."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}
 }
+func rawFlag() flagSpec {
+	return boolFlag("raw", "Send the text exactly as given, skipping the [formatting] rules (such as linking #1234 to its pull request).")
+}
+func dryRunFlag() flagSpec {
+	return boolFlag("dry-run", "Print the formatted text that would be sent, and send nothing.")
+}
+
+// outgoingFlags reads --raw and --dry-run where a leaf defines them.
+func outgoingFlags(cmd *cobra.Command) outgoing {
+	var o outgoing
+	if cmd.Flags().Lookup("raw") != nil {
+		o.raw, _ = cmd.Flags().GetBool("raw")
+	}
+	if cmd.Flags().Lookup("dry-run") != nil {
+		o.dryRun, _ = cmd.Flags().GetBool("dry-run")
+	}
+	return o
+}
+
 func transitionFlags() []flagSpec {
 	return []flagSpec{stringFlag("note", "Transition audit note."), stringFlag("request-id", "Durable mutation request ID."), boolFlag("json", "Render the result as JSON.")}
 }

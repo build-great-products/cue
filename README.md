@@ -27,6 +27,7 @@ The current v1 workflow includes:
 - tasks from other systems, labelled with a source name, deduplicated by an external key, and optionally answered in a Slack thread (see [Feeding tasks from other systems](#feeding-tasks-from-other-systems));
 - `task watch`, a one-line-per-event task stream with a durable resume cursor;
 - explicit Slack reads, replies, edits, deletes, reactions, and file uploads;
+- configurable formatting of every outgoing message, which links `#1234` to its pull request by default (see [Message formatting](#message-formatting));
 - Slack lifecycle reactions that mirror task state;
 - lazy incoming file download and private temporary-file handling;
 - durable ambiguous outcomes that are never retried automatically; and
@@ -239,6 +240,44 @@ cue task reply AbCdEfGh --text "See https://example.com/notes" --unfurl --done
 ```
 
 The choice is recorded on the send effect (`"unfurl": false` or `true` in `effect inspect --json`), so an ambiguous post shows what was sent, and retrying with the same `--request-id` but a different choice fails as a conflict, like changing the text. `--unfurl` cannot be combined with `--file`, and is refused for a task that replies through a reply adapter. A CLI with this behaviour refuses (exit 9) to post through an older gateway, which would let Slack unfurl.
+
+### Message formatting
+
+Before Cue posts text (`slack send`, `slack edit`, `slack file --comment`, and `task reply`, including replies that go through a reply adapter), the CLI runs it through an ordered list of formatting rules. The defaults link pull requests and factory tickets, so a reply that mentions `#2909` arrives as a link even if you forget to write one:
+
+| You write | Cue posts |
+| --- | --- |
+| `Merged #2909` | `Merged <https://github.com/build-great-products/rough.app/pull/2909\|#2909>` |
+| `*#123*`, `(#123)` | `*<…/pull/123\|#123>*`, `(<…/pull/123\|#123>)` |
+| `build-great-products/cue#12` | `<https://github.com/build-great-products/cue/pull/12\|build-great-products/cue#12>` |
+| `factory #45`, `factory#45` | `<https://factory.rough.app/t/45\|factory #45>` |
+| `` `git show #2909` ``, `<https://x.com\|#2909>`, `https://x.com/a#2909` | unchanged: code, links, and URLs are never touched |
+| `<#C0BAQM6JEAJ>`, `#general`, `#2024-planning` | unchanged: channel and user mentions |
+| `#fff`, `#a1b2c3`, `#123abc`, `#123456`, `#12`, `2909` | unchanged: colours, other lengths, no `#` |
+
+A bare `#N` needs 3 to 5 digits; `/pull/N` also works for issues, because GitHub redirects it. Preview what would be posted, without contacting the gateway, with `--dry-run` (on `slack send`, `slack edit`, and `task reply`), and skip formatting for one message with `--raw`:
+
+```sh
+cue slack send --channel C0BAQM6JEAJ --text "Shipped #2909" --dry-run
+# Shipped <https://github.com/build-great-products/rough.app/pull/2909|#2909>
+cue task reply AbCdEfGh --text "Literal #2909, please" --raw --done
+```
+
+Change the rules in `config.toml`. Without a `[formatting]` table Cue uses the defaults below, which is equivalent to writing them out; `rules = []` under `[formatting]` turns formatting off. Rules run in order, and a link one rule makes is left alone by the rules after it.
+
+```toml
+[[formatting.rules]]
+kind = "ticket_links"                          # "factory #12" and "factory#12"
+prefix = "factory"                             # matched case-insensitively, kept as written
+url = "https://factory.rough.app/t/{number}"
+
+[[formatting.rules]]
+kind = "github_links"                          # "#1234" and "owner/repo#12"
+repo = "build-great-products/rough.app"        # where a bare #1234 points
+ignore_after = ["factory"]                     # optional: #N after these words is someone else's number
+```
+
+The rules are read by the CLI each time it runs, so an edit applies to the next command without `gateway reload`. A gateway from before this release refuses a `config.toml` with a `[formatting]` table (unknown key), so restart the gateway on the new binary before adding one. Formatting happens before the request is recorded, so a retry with the same `--request-id` must run with the same rules and the same `--raw` choice. `cue config show --json` lists the effective rules. [`docs/SPEC.md`](docs/SPEC.md) section 6b has the exact matching rules.
 
 ## Files and exceptional outcomes
 

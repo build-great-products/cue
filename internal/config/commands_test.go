@@ -132,3 +132,52 @@ func TestCommandMustNotBeASymlinkOrInAnOpenDirectory(t *testing.T) {
 		}
 	}
 }
+
+func TestFormattingLoad(t *testing.T) {
+	loc, c := setupConfig(t)
+	if c.Formatting != nil || len(c.FormatRules()) != 2 || c.FormatRules()[1].Repo != "build-great-products/rough.app" {
+		t.Fatalf("default formatting = %#v, %#v", c.Formatting, c.FormatRules())
+	}
+	if view := Redact(c); !view.FormattingDefault || len(view.FormattingRules) != 2 {
+		t.Fatalf("view = %#v", view)
+	}
+	base, err := os.ReadFile(loc.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, tc := range map[string]struct{ text, want string }{
+		"configured": {"\n[[formatting.rules]]\nkind = \"github_links\"\nrepo = \"acme/api\"\nignore_after = []\n\n[[formatting.rules]]\nkind = \"ticket_links\"\nprefix = \"jira\"\nurl = \"https://jira.example.com/browse/X-{number}\"\n", ""},
+		"off":        {"\n[formatting]\nrules = []\n", ""},
+		"no rules":   {"\n[formatting]\n", "needs rules"},
+		"bad kind":   {"\n[[formatting.rules]]\nkind = \"emoji\"\n", "kind must be"},
+		"bad repo":   {"\n[[formatting.rules]]\nkind = \"github_links\"\nrepo = \"nope\"\n", "OWNER/NAME"},
+		"unknown":    {"\n[[formatting.rules]]\nkind = \"github_links\"\nrepo = \"a/b\"\nlabel = \"x\"\n", "unknown key"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			if err := os.WriteFile(loc.Path, append(append([]byte{}, base...), tc.text...), 0600); err != nil {
+				t.Fatal(err)
+			}
+			got, err := Load(loc)
+			if tc.want != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.want) {
+					t.Fatalf("Load error = %v, want %q", err, tc.want)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			rules := got.FormatRules()
+			switch name {
+			case "configured":
+				if len(rules) != 2 || rules[0].Repo != "acme/api" || rules[0].IgnoreAfter == nil || len(rules[0].IgnoreAfter) != 0 || rules[1].Prefix != "jira" {
+					t.Fatalf("rules = %#v", rules)
+				}
+			case "off":
+				if rules == nil || len(rules) != 0 || Redact(got).FormattingDefault {
+					t.Fatalf("rules = %#v", rules)
+				}
+			}
+		})
+	}
+}

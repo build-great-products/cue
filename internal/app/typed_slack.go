@@ -48,16 +48,14 @@ func (a App) slackTyped(command string, cmd *cobra.Command, args []string) error
 		cursor, _ := cmd.Flags().GetString("cursor")
 		params = protocol.SlackThreadParams{Channel: channel, ThreadTS: args[0], Task: task, Limit: limit, Cursor: cursor}
 	case "send":
-		text, err := a.slackTypedText(cmd)
-		if err != nil {
+		text, err := a.slackOutgoingText(cmd, jsonOut)
+		if err != nil || text == "" {
 			return err
 		}
 		thread, _ := cmd.Flags().GetString("thread")
 		files, _ := cmd.Flags().GetStringArray("file")
+		// slackOutgoingText refused --unfurl with --file.
 		unfurl, _ := cmd.Flags().GetBool("unfurl")
-		if unfurl && len(files) > 0 {
-			return usage("--unfurl applies only to a text post; it cannot be used with --file")
-		}
 		paths, err := absolutePaths(files)
 		if err != nil {
 			return err
@@ -67,8 +65,8 @@ func (a App) slackTyped(command string, cmd *cobra.Command, args []string) error
 			capability = protocol.CapabilityFileTransfer
 		}
 	case "edit":
-		text, err := a.slackTypedText(cmd)
-		if err != nil {
+		text, err := a.slackOutgoingText(cmd, jsonOut)
+		if err != nil || text == "" {
 			return err
 		}
 		params = protocol.SlackEditParams{Channel: channel, MessageTS: args[0], Text: text, Task: task}
@@ -131,6 +129,34 @@ func (a App) slackTypedText(cmd *cobra.Command) (string, error) {
 	textFile, _ := cmd.Flags().GetString("text-file")
 	stdin, _ := cmd.Flags().GetBool("stdin")
 	return a.readCommandTextSource(text, textFile, cmd.Flags().Changed("text"), cmd.Flags().Changed("text-file"), stdin)
+}
+
+// slackOutgoingText reads and formats the text of a send or edit. With
+// --dry-run it prints the result and returns "", nil: the caller stops.
+// Real text is never empty (validateCommandText refuses it).
+func (a App) slackOutgoingText(cmd *cobra.Command, jsonOut bool) (string, error) {
+	original, err := a.slackTypedText(cmd)
+	if err != nil {
+		return "", err
+	}
+	if unfurl, _ := cmd.Flags().GetBool("unfurl"); unfurl {
+		if files, _ := cmd.Flags().GetStringArray("file"); len(files) > 0 {
+			return "", usage("--unfurl applies only to a text post; it cannot be used with --file")
+		}
+	}
+	c, err := loadCommandConfig()
+	if err != nil {
+		return "", err
+	}
+	send := outgoingFlags(cmd)
+	text, err := formatOutgoing(c, original, send.raw)
+	if err != nil {
+		return "", err
+	}
+	if send.dryRun {
+		return "", a.renderDryRun(original, text, send.raw, jsonOut)
+	}
+	return text, nil
 }
 
 // unfurlCapability is the extra gateway capability a text slack send needs.

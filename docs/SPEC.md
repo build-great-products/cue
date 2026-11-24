@@ -67,6 +67,22 @@ timeout = "10s"              # optional Go duration, 1s to 1m, default 10s
 
 A `command` must be an absolute, clean path to a regular, singly linked file owned by the effective user, executable by its owner and not writable by group or others, and every directory above it must be symlink-free and not group- or world-writable. The file itself must not be a symlink. These checks run whenever the configuration is loaded for use (startup and `gateway reload`), so a command that fails them stops the gateway from starting and fails a reload, which keeps the prior configuration. Commands run with no shell and no arguments, with the gateway's environment, in their own process group; on timeout the whole group is killed. Their stdout is discarded; the start of their stderr (at most 2048 bytes) is logged when they fail, so a command must not write message text or credentials to stderr. Unknown keys inside these tables are rejected like any unknown key. `config set` does not edit them; edit `config.toml` and reload. `config show` and status show command paths, which are not secret.
 
+`config.toml` may also define the outgoing formatting rules (section 6b) as an ordered array of tables. Without a `[formatting]` table the built-in defaults apply; `rules = []` turns formatting off; a `[formatting]` table without `rules` is an error, as is an unknown `kind`, a field set for the wrong kind, or more than 16 rules:
+
+```toml
+[[formatting.rules]]
+kind = "ticket_links"                          # PREFIX #N or PREFIX#N
+prefix = "factory"                             # a letter, then up to 31 of A-Z a-z 0-9 -; matched case-insensitively
+url = "https://factory.rough.app/t/{number}"   # http(s); {number} exactly once
+
+[[formatting.rules]]
+kind = "github_links"                          # #N (3 to 5 digits) and OWNER/REPO#N
+repo = "build-great-products/rough.app"        # OWNER/NAME a bare #N links to
+ignore_after = ["factory"]                     # optional; words marking #N as another tracker's; absent means ["factory"]
+```
+
+The formatting rules are read by the CLI, not the gateway, so a changed rule applies to the next command without a reload. A gateway older than the formatting release rejects a config containing `[formatting]` as an unknown key, so add the table only once the gateway runs a release that knows it.
+
 Keys of removed features must be rejected with guidance to remove them: `delivery_lease`, `leader_heartbeat`, and `leader_expiry` (Pi delivery), `slack_channel_id` and `slack_channel_allowlist` (channel restrictions), and `trusted_user_ids` (trusted users). The gateway must refuse to start, and a reload must fail, while any of them is present, and the error must name every unknown or obsolete key found, not only the first.
 
 `config set` must update one known non-secret value atomically while preserving unrelated comments and formatting. `config secret set` must accept only known Slack token fields and avoid printing their values. Editing stages a candidate; it does not change the running snapshot.
@@ -200,6 +216,8 @@ Conclusive rejection is `failed`. Timeout, disconnect, cancellation, or malforme
 
 **Link previews.** Every message Cue posts with `chat.postMessage` (`slack send` without `--file`, and `task reply` into a Slack task's thread or a named source's reply target) must set `unfurl_links=false` and `unfurl_media=false`, unless the caller passes `--unfurl`. With `--unfurl`, Cue sends neither parameter, so Slack applies its own default, which may unfurl. The choice is part of the send's exact payload: the effect records it (`unfurl` in effect DTOs, set only for `send`), it is part of the payload hash and request hash, so a replay with the same request ID and a different choice fails as `request_id_conflict` exactly as different text does, and `effect retry` keeps the predecessor's choice. `--unfurl` is a usage error with `--file`, and `task reply --unfurl` on a task answered by a reply adapter fails with `unfurl_not_applicable` (usage, exit 2) before anything is recorded, because an adapter receives only text. Edits, deletes, reactions, lifecycle reactions, and file uploads have no unfurl option. The `slack_unfurl_v1` capability advertises this behaviour; a client must see it before any text `slack send` or `task reply`, with or without `--unfurl`, and otherwise fail with the unsupported category (exit 9), so a new CLI never posts through an older gateway that would let Slack unfurl.
 
+**Outgoing formatting.** See section 6b.
+
 `effect retry` creates a linked successor rather than rewriting its predecessor. Retrying an ambiguous effect requires explicit duplicate-risk confirmation. Task relationships are audit metadata only.
 
 `task reply` derives its destination from a durable Slack task source, or from the reply target or reply adapter of a local task's named source (section 4b). With `--done`, it must confirm the reply before applying the local completion. Interrupted replay with the same request ID must not post twice, and failures/ambiguity must leave the task incomplete.
@@ -225,6 +243,15 @@ The command reads one JSON object on stdin:
 `key` and `url` are omitted when the task's source has none. `text` is the exact reply body. The command's stdout is ignored.
 
 The reply result carries `adapter_effect` (`effect_id`, `related_task_id`, `adapter`, `state`, `attempt_count`, `exit_code`, `diagnostic_code`, and timestamps) instead of `effect`. `task context` shows a task's newest adapter effect as `effects.latest_adapter_reply`. `gateway status` reports `reply_adapters` with the configured count, effects by state, and `action_required` (failed plus ambiguous). Adapter effects are not Slack effects: `effect list`, `effect inspect`, and `effect retry` do not show or retry them.
+
+## 6b. Outgoing formatting
+
+Before it frames the request, the CLI rewrites the text of every message Cue posts: `slack send` (the text, also when it accompanies `--file`), `slack edit`, `slack file --comment`, and `task reply` (also when a reply adapter delivers it). It applies the configured rules (section 3) in order. Each rule rewrites only plain text: it must not change text inside inline code, inside a code block (an unclosed one runs to the end of the text), inside any single-line `<...>` construct (a Slack link, a user, channel, or special mention), or inside a bare URL (a scheme `://`, `www.`, or `mailto:` up to whitespace), and a link an earlier rule produced is protected from later rules. Applying the rules to their own output changes nothing.
+
+- `github_links` turns `#N` with 3 to 5 digits into `<https://github.com/REPO/pull/N|#N>`, and `OWNER/REPO#N` (1 to 7 digits, no leading zero) into a link labelled `OWNER/REPO#N`. GitHub redirects `/pull/N` to `/issues/N` for an issue. It leaves `#N` alone when the character before `#` is a letter, digit, `&`, `#`, `/`, `@`, `\`, `-`, or `.`, or a `_` that follows a letter or digit (so `_#123_` italics still link); when the digits are followed by a letter or digit, or by `-`, `_`, `.`, `/`, `@`, or `#` and then a letter, digit, or `#` (colour codes such as `#123abc`, channel names such as `#2024-planning`, `#12.5`); and when the word immediately before it, with or without one space, is one of `ignore_after`.
+- `ticket_links` turns `PREFIX #N` or `PREFIX#N` (any number of digits, the prefix a whole word) into `<URL|PREFIX #N>`, with `{number}` in `URL` replaced by N and the prefix as written.
+
+The defaults are a `ticket_links` rule for `factory` and then a `github_links` rule for `build-great-products/rough.app`. `--raw` skips formatting for one command. `slack send`, `slack edit`, and `task reply` accept `--dry-run`, which reads and formats the text, prints it (with `--json`: `{"dry_run":true,"raw":BOOL,"formatted":BOOL,"text":TEXT}`), and exits 0 without contacting the gateway; local usage errors still apply. Because formatting happens before the request is framed, the formatted text is what the ledger records and what the request hash covers: a replay with the same request ID must use the same rules (or `--raw` choice) or it fails as `request_id_conflict`. No protocol capability or schema change is involved.
 
 ## 7. Files
 
@@ -270,7 +297,7 @@ Cobra help is the complete command-discovery interface. Running the root or a co
 
 `task context TASK [--thread-limit N]` is a read-only bounded task workflow view. It includes the current durable task/source attachment metadata, latest reply effect, and at most ten newest non-confirmed related effects and their total. For Slack tasks it makes one best-effort live thread-page read (default 20, maximum 100, plus the thread's parent as Slack returns it); `thread.status` is `available`, `unavailable`, or `not_applicable`, and an unreadable Slack response gives `unavailable` with `diagnostic_code` `slack_invalid_response`. An unavailable live thread is a successful partial result with a warning; missing tasks remain not-found. It never downloads files or returns live-reply file metadata, file bytes, private URLs, effect body text, or operator reasons.
 
-`slack send` and `task reply` also accept `--unfurl` (section 6); without it, posts carry no link or media previews.
+`slack send` and `task reply` also accept `--unfurl` (section 6); without it, posts carry no link or media previews. `slack send`, `slack edit`, `slack file`, and `task reply` accept `--raw`, and all but `slack file` accept `--dry-run` (section 6b).
 
 `task create` also accepts `--source NAME`, `--key KEY`, `--url URL`, and `--reply-slack CHANNEL:THREAD_TS` or `--reply-via NAME` (section 4b). `task create`, `task update`, `task reply`, `slack send`, and `slack edit` require exactly one text source: `--text`, `--text-file`, or `--stdin`. `--text` is exact literal text and must not decode escapes: a supplied `\\n` is a backslash followed by `n`. `--text-file` and explicit stdin preserve exact multiline UTF-8 bodies; stdin reads its complete bounded body (including trailing newlines) before gateway interaction. Empty, NUL-containing, malformed UTF-8, and over-limit bodies fail locally. This body stdin is independent from `config secret set --stdin` credential input.
 

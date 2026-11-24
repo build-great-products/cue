@@ -27,7 +27,7 @@ func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
 // taskTyped binds Cobra's already-parsed task leaves directly to protocol DTOs.
 // It retains the established task request IDs, text-file safety, and
 // mutation JSON envelope.
-func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done, unfurl bool, requestID, cursor string, jsonOut bool, origin taskOrigin) error {
+func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done, unfurl bool, requestID, cursor string, jsonOut bool, origin taskOrigin, send outgoing) error {
 	mutation := command == "create" || command == "update" || command == "open" || command == "working" || command == "done" || command == "reply"
 	var params any
 
@@ -87,9 +87,20 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		// an omitted --note; retain that precise wire DTO shape.
 		params = protocol.TaskTransitionParams{Task: selector, State: command, Note: &note}
 	case "reply":
-		body, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
+		original, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
 		if err != nil {
 			return err
+		}
+		fc, err := loadCommandConfig()
+		if err != nil {
+			return err
+		}
+		body, err := formatOutgoing(fc, original, send.raw)
+		if err != nil {
+			return err
+		}
+		if send.dryRun {
+			return a.renderDryRun(original, body, send.raw, jsonOut)
 		}
 		params = protocol.TaskReplyParams{Task: selector, Text: body, Done: done, Unfurl: unfurl}
 	default:
