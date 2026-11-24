@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -323,7 +324,7 @@ func splitTask(text string) (string, string) {
 // george@rough.app: ...". Anything else is as it is.
 func prettyTitle(s string) string {
 	if !strings.HasPrefix(s, "FACTORY_EVENT ") {
-		return s
+		return plainSlack(s)
 	}
 	fields := map[string]string{}
 	rest := strings.TrimPrefix(s, "FACTORY_EVENT ")
@@ -367,4 +368,19 @@ func slackLink(t protocol.TaskDTO, workspace string) string {
 
 func isHTTP(s string) bool {
 	return (strings.HasPrefix(s, "https://") || strings.HasPrefix(s, "http://")) && !strings.ContainsAny(s, " \t\n")
+}
+
+var (
+	leadingMention = regexp.MustCompile(`^(?:<@[A-Z0-9]+>[\s,:]*)+`)
+	slackLinkLabel = regexp.MustCompile(`<((?:https?|mailto):[^|>\s]+)\|([^>]+)>`)
+	slackLinkBare  = regexp.MustCompile(`<((?:https?|mailto):[^|>\s]+)>`)
+)
+
+// plainSlack reads Slack markup as text: no leading bot mention, and
+// <url|label> as the label, <url> as the url.
+func plainSlack(s string) string {
+	s = leadingMention.ReplaceAllString(s, "")
+	s = slackLinkLabel.ReplaceAllString(s, "$2")
+	s = slackLinkBare.ReplaceAllString(s, "$1")
+	return strings.TrimSpace(s)
 }

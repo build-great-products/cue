@@ -9,6 +9,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/orchstatus"
 	"github.com/build-great-products/cue/internal/protocol"
 )
@@ -85,7 +86,34 @@ func (a App) statusTasks(state string) ([]protocol.TaskDTO, error) {
 	if err := json.Unmarshal(b, &page); err != nil {
 		return nil, err
 	}
+	// The list leaves out a Slack task's source; its thread link needs it.
+	for i := range page.Tasks {
+		t := &page.Tasks[i]
+		if t.SourceKind != "slack" || t.SlackSource != nil || i >= statusSlackLookups {
+			continue
+		}
+		if full, err := a.statusTask(c, t.TaskID); err == nil && full.SlackSource != nil {
+			t.SlackSource = full.SlackSource
+		}
+	}
 	return page.Tasks, nil
+}
+
+// statusSlackLookups bounds the task.get calls one status run makes.
+const statusSlackLookups = 20
+
+func (a App) statusTask(c config.Config, id string) (protocol.TaskDTO, error) {
+	var t protocol.TaskDTO
+	out, err := a.gatewayCall(c, "task.get", "req_read_status_task", protocol.TaskSelector{Task: id}, protocol.CapabilityLocalTasks)
+	if err != nil {
+		return t, err
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return t, err
+	}
+	err = json.Unmarshal(b, &t)
+	return t, err
 }
 
 func renderStatus(a App, s orchstatus.Snapshot) error {

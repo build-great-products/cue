@@ -154,7 +154,7 @@ func TestPrettyTitleAndTasks(t *testing.T) {
 	if *got.SlackURL != "https://rough-app.slack.com/archives/C0BAQM6JEAJ/p1795382267775129?thread_ts=1795382000.000001&cid=C0BAQM6JEAJ" || got.URL != nil {
 		t.Fatalf("slack url = %v", got.SlackURL)
 	}
-	if got.Title != "<@U1> do it" || *got.Notes != "more detail token=[redacted]" {
+	if got.Title != "do it" || *got.Notes != "more detail token=[redacted]" {
 		t.Fatalf("task = %+v", got)
 	}
 }
@@ -248,5 +248,12 @@ func TestBuildKeepsGoingWhenSourcesFail(t *testing.T) {
 	})
 	if s.Orchestrator.State != "unknown" || len(s.Errors) < 3 || s.Now == nil || s.Children == nil || s.Inbox == nil {
 		t.Fatalf("snapshot: %+v", s)
+	}
+}
+
+func TestPlainSlack(t *testing.T) {
+	got := plainSlack("<@U0BC8F0V9P1> could you try adding <https://impeccable.style/> to <https://x.test/a|our template>")
+	if got != "could you try adding https://impeccable.style/ to our template" {
+		t.Fatalf("got %q", got)
 	}
 }
