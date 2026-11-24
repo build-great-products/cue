@@ -26,6 +26,7 @@ The current v1 workflow includes:
 - local and Slack-origin tasks with `open`, `working`, and `done` states;
 - tasks from other systems, labelled with a source name, deduplicated by an external key, and optionally answered in a Slack thread (see [Feeding tasks from other systems](#feeding-tasks-from-other-systems));
 - `task watch`, a one-line-per-event task stream with a durable resume cursor;
+- `status`, a redacted JSON snapshot of the agent session, its child sessions in tmux, and the inbox and queue, for a dashboard (see [Agent status snapshot](#agent-status-snapshot));
 - explicit Slack reads, replies, edits, deletes, reactions, and file uploads;
 - configurable formatting of every outgoing message, which links `#1234` to its pull request by default (see [Message formatting](#message-formatting));
 - Slack lifecycle reactions that mirror task state;
@@ -301,6 +302,28 @@ cue effect list --state ambiguous --json
 cue gateway status --json
 cue doctor --json
 ```
+
+## Agent status snapshot
+
+`cue status` describes what the agent session Cue serves is doing right now, for a dashboard. With `--json` it prints one object:
+
+```json
+{"version":1,"generatedAt":"2026-11-25T08:00:00Z",
+ "orchestrator":{"state":"working","sessionId":"18e8a977-..."},
+ "now":[{"at":"2026-11-25T07:59:50.123Z","tool":"Bash","description":"Run the CRM e2e tests"}],
+ "lastMessage":{"at":"...","text":"..."},
+ "children":[{"name":"claude-crm-book","purpose":"...","state":"working","startedAt":"...","lastAction":{"at":"...","tool":"Edit","description":"book.ts"},"prs":[{"number":2909,"url":"https://github.com/..."}],"tickets":[396]}],
+ "inbox":[{"id":"...","state":"open","title":"...","notes":null,"source":"slack","createdAt":"...","url":null,"slackUrl":"https://...","tickets":[]}],
+ "queue":[{"id":"...","state":"queued","title":"...","notes":"...","source":"local","createdAt":"...","url":null,"slackUrl":null,"tickets":[410]}],
+ "errors":[]}
+```
+
+- **The agent** is the tmux session `--session` (default `claude`). Claude Code records each running session in `~/.claude/sessions/<pid>.json` (its session id, directory and busy, shell or idle status), so the pane's pid finds its transcript, `~/.claude/projects/<directory with every other character as ->/<session id>.jsonl`. Failing that, the newest transcript for its directory, then `--transcript PATH`.
+- **Now** is its newest 30 tool calls, newest first: the tool and the call's `description` (every Bash call has one), else the file it touched or the first line of its command. **lastMessage** is its last text. Only the last 2 MB of the transcript is read, however large it is, and only lines that are assistant messages are decoded.
+- **Children** are the tmux sessions named `--child-prefix` (default `claude-`). The purpose is the first meaningful line of the brief its start command reads (`"$(cat /path/brief.md)"`), else of its first user message. It is working when its session is busy or running a shell, or its status line shows `esc to interrupt`, a shell or a monitor. Its last action comes from the last 512 KB of its own transcript; its PRs from GitHub URLs in the brief and `PR #N` on its status line (in its checkout's `origin` repo); its tickets from factory links and "factory #N" or "ticket #N" in the brief.
+- **Inbox** is the open and working tasks, **queue** the queued ones (see `task add --state queued`), from the gateway. The title is the first line (a factory feeder line reads as `#12 comment by ...: text`), notes the rest. `--slack-workspace rough-app` turns a Slack task into a thread link.
+- **Redaction:** every text field has secret-looking values replaced by `[redacted]`: bearer and basic credentials, `name=value` or `name: value` where the name holds token, secret, password, key or cookie, credentials in URLs, Slack, GitHub, OpenAI-style and AWS keys, JWTs, PEM private keys, hex runs of 32 or more (commit hashes included), and long base64-looking runs that mix cases and digits. Then each field is capped (descriptions 500 characters, the message 1,000, a purpose or title 300, notes 500), counted in UTF-16 units as JavaScript counts them.
+- A source that is missing or fails (no tmux, a gateway that is down or too old for `queued`) is a line in `errors`; the rest is still reported. The command takes about 0.1 s of CPU on a 1.3 GB transcript. `--timeout` bounds it (default 10s).
 
 ## Configuration and local state
 
