@@ -64,6 +64,7 @@ func (a App) statusCommand() *cobra.Command {
 	f.StringVar(&opts.ChildPrefix, "child-prefix", "claude-", "Name prefix of child agent tmux sessions.")
 	f.StringVar(&opts.Transcript, "transcript", "", "Transcript to read when the session's own cannot be found.")
 	f.StringVar(&opts.SlackWorkspace, "slack-workspace", "", "Slack workspace subdomain for thread links, such as rough-app.")
+	f.StringVar(&opts.Tmux, "tmux", "tmux", "tmux binary; it must be the version the tmux server runs.")
 	f.StringVar(&timeout, "timeout", "", "Overall time budget (default 10s).")
 	return cmd
 }

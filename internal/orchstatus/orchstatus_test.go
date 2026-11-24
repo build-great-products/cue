@@ -257,3 +257,17 @@ func TestPlainSlack(t *testing.T) {
 		t.Fatalf("got %q", got)
 	}
 }
+
+func TestListPanesNoServerIsEmptyButAMismatchIsAnError(t *testing.T) {
+	fail := func(stderr string) Runner {
+		return func(context.Context, string, ...string) ([]byte, error) {
+			return nil, &exec.ExitError{Stderr: []byte(stderr)}
+		}
+	}
+	if panes, err := ListPanes(context.Background(), fail("no server running on /tmp/tmux-1001/default\n"), "tmux"); err != nil || panes != nil {
+		t.Fatalf("no server: %v %v", panes, err)
+	}
+	if _, err := ListPanes(context.Background(), fail("server exited unexpectedly\n"), "/usr/bin/tmux"); err == nil || !strings.Contains(err.Error(), "server exited unexpectedly") {
+		t.Fatalf("mismatch: %v", err)
+	}
+}

@@ -3,6 +3,8 @@ package orchstatus
 import (
 	"context"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -46,8 +48,16 @@ const paneFormat = "#{session_name}\t#{pane_pid}\t#{session_created}\t#{pane_cur
 func ListPanes(ctx context.Context, run Runner, tmux string) ([]Pane, error) {
 	out, err := run(ctx, tmux, "list-panes", "-a", "-F", paneFormat)
 	if err != nil {
-		if _, ok := err.(*exec.ExitError); ok {
-			return nil, nil
+		// No server (no socket, or none running) is nothing running. Any
+		// other failure, such as a client older than the server ("server
+		// exited unexpectedly"), is an error.
+		var exit *exec.ExitError
+		if errors.As(err, &exit) {
+			stderr := string(exit.Stderr)
+			if strings.Contains(stderr, "no server running") || strings.Contains(stderr, "error connecting") {
+				return nil, nil
+			}
+			return nil, fmt.Errorf("%s list-panes: %s", tmux, strings.TrimSpace(stderr))
 		}
 		return nil, err
 	}
