@@ -19,7 +19,13 @@ func ledgerAtVersion(t *testing.T, version int, statements ...string) string {
 		t.Fatal(err)
 	}
 	defer db.Close()
-	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014}
+	// One connection, with foreign keys off while the migrations run, as the
+	// gateway runs them (migration 15 rebuilds a parent table).
+	db.SetMaxOpenConns(1)
+	if _, err := db.Exec("PRAGMA foreign_keys=OFF"); err != nil {
+		t.Fatal(err)
+	}
+	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014, migration0015}
 	for i, migration := range migrations[:version] {
 		if _, err := db.Exec(string(migration)); err != nil {
 			t.Fatal(err)
@@ -27,6 +33,9 @@ func ledgerAtVersion(t *testing.T, version int, statements ...string) string {
 		if _, err := db.Exec("INSERT INTO schema_migrations(version,checksum,applied_at) VALUES(?,?,1)", i+1, migrationChecksum(i+1)); err != nil {
 			t.Fatal(err)
 		}
+	}
+	if _, err := db.Exec("PRAGMA foreign_keys=ON"); err != nil {
+		t.Fatal(err)
 	}
 	statements = append([]string{fmt.Sprintf("PRAGMA application_id=%d", ApplicationID), fmt.Sprintf("PRAGMA user_version=%d", version)}, statements...)
 	for _, statement := range statements {

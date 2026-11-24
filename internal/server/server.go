@@ -587,7 +587,11 @@ func (s *Server) dispatchConnection(ctx context.Context, r protocol.Request, con
 			err = errReplyAdapterNotConfigured
 			break
 		}
-		result, err = s.store.CreateFromSource(ctx, r.RequestID, p.Text, src)
+		state := task.Open
+		if p.State != "" {
+			state = task.State(p.State)
+		}
+		result, err = s.store.CreateInState(ctx, r.RequestID, p.Text, src, state)
 	case "task.get":
 		var p protocol.TaskSelector
 		_ = json.Unmarshal(r.Params, &p)

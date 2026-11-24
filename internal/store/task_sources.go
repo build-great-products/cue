@@ -94,6 +94,13 @@ func validateTaskSource(src TaskSource) error {
 // creates nothing; the new text, URL, and reply target are ignored. The key stays reserved
 // for as long as that task is retained, whatever its state.
 func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, src TaskSource) (MutationResult, error) {
+	return s.CreateInState(ctx, requestID, text, src, task.Open)
+}
+
+// CreateInState is CreateFromSource for a new task that starts open or
+// queued. Deduplication by key ignores state as it ignores text: an existing
+// task comes back unchanged, whatever state either asks for.
+func (s *Store) CreateInState(ctx context.Context, requestID, text string, src TaskSource, state task.State) (MutationResult, error) {
 	normalized, normalizeErr := task.NormalizeText(text)
 	canonical := normalized
 	if normalizeErr != nil {
@@ -112,12 +119,19 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 	if src.ReplyAdapter != "" {
 		inputs = append(inputs, "reply_adapter", src.ReplyAdapter)
 	}
+	if state != task.Open {
+		// Open creates keep their hash, so earlier request IDs still replay.
+		inputs = append(inputs, "state", string(state))
+	}
 	return s.mutate(ctx, request{"task.create", hash("task.create", inputs...)}, requestID, func(tx *sql.Tx, now int64) (MutationResult, error) {
 		if normalizeErr != nil {
 			return MutationResult{}, invalidInput(normalizeErr.Error())
 		}
 		if err := validateTaskSource(src); err != nil {
 			return MutationResult{}, err
+		}
+		if state != task.Open && state != task.Queued {
+			return MutationResult{}, invalidInput("a new task is open or queued")
 		}
 		if src.Key != "" {
 			var existingID string
@@ -137,7 +151,7 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 		if err != nil {
 			return MutationResult{}, err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO tasks(task_id,version,state,text,source_kind,created_at,updated_at,done_at) VALUES(?,1,'open',?,'local',?,?,NULL)", id, normalized, now, now); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO tasks(task_id,version,state,text,source_kind,created_at,updated_at,done_at) VALUES(?,1,?,?,'local',?,?,NULL)", id, state, normalized, now, now); err != nil {
 			return MutationResult{}, err
 		}
 		if src.Name != "" {
@@ -149,7 +163,7 @@ func (s *Store) CreateFromSource(ctx context.Context, requestID, text string, sr
 				return MutationResult{}, err
 			}
 		}
-		return result(id, 1, task.Open, true, now, now), nil
+		return result(id, 1, state, true, now, now), nil
 	})
 }
 

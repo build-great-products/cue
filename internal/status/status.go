@@ -3,6 +3,7 @@ package status
 
 // Counts is the current task and deduplication record inventory.
 type Counts struct {
+	Queued         int64 `json:"queued"`
 	Open           int64 `json:"open"`
 	Working        int64 `json:"working"`
 	Done           int64 `json:"done"`

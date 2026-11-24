@@ -303,6 +303,37 @@ func TestSlackTaskReactionLifecycleUsesDurableOrderedEffects(t *testing.T) {
 	}
 }
 
+// A queued Slack task is parked: entering queued drops the lifecycle marker
+// as done does, and leaving it for open puts the hourglass back.
+func TestSlackTaskReactionQueuedDropsMarker(t *testing.T) {
+	ctx := context.Background()
+	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ledger.Close()
+	source := newTaskReplySource(t, ledger, "reaction-queued")
+	s, _ := newTaskReplyServer(t, ledger, reactionSteps(
+		reactionStep(fake.AddReaction, queuedTaskReaction),
+		reactionStep(fake.RemoveReaction, queuedTaskReaction),
+		reactionStep(fake.AddReaction, queuedTaskReaction),
+	)...)
+	if err := s.queueTaskReaction(ctx, source.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	transitionAndProject(t, s, ledger, "reaction-queued-park", source.TaskID, task.Queued)
+	transitionAndProject(t, s, ledger, "reaction-queued-open", source.TaskID, task.Open)
+	effects, err := ledger.ListSlackEffects(ctx, nil, 10)
+	if err != nil || len(effects) != 3 {
+		t.Fatalf("effects=%+v err=%v", effects, err)
+	}
+	for _, effect := range effects {
+		if effect.State != store.SlackEffectConfirmed {
+			t.Fatalf("effect not confirmed: %+v", effect)
+		}
+	}
+}
+
 func TestTaskReactionRecoveryDoesNotRemoveQueueWhenWorkingAddFails(t *testing.T) {
 	ctx := context.Background()
 	ledger, err := store.Initialize(ctx, filepath.Join(t.TempDir(), "cue.db"), store.Options{})

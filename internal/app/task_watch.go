@@ -19,6 +19,7 @@ import (
 	"github.com/build-great-products/cue/internal/client"
 	"github.com/build-great-products/cue/internal/config"
 	"github.com/build-great-products/cue/internal/protocol"
+	"github.com/build-great-products/cue/internal/task"
 )
 
 const (
@@ -264,7 +265,12 @@ func (w *taskWatcher) handle(page protocol.TaskChangesDTO) (bool, error) {
 	return len(page.Changes) == w.limit, nil
 }
 
+// emits never selects a queued task. The gateway already leaves queued tasks
+// out of the change feed; this keeps the client consistent if one arrives.
 func (w *taskWatcher) emits(change protocol.TaskChangeDTO) bool {
+	if change.Task.State == string(task.Queued) {
+		return false
+	}
 	if w.backlog && change.ChangeSeq <= w.backlogHead {
 		return change.Task.State == "open"
 	}

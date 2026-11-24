@@ -109,7 +109,7 @@ func TestOpenUpgradeV13RecordsExistingSendsAsUnfurled(t *testing.T) {
 	}
 	defer s.Close()
 	var version int
-	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion != 14 {
+	if err := s.DB().QueryRow("PRAGMA user_version").Scan(&version); err != nil || version != SchemaVersion || SchemaVersion < 14 {
 		t.Fatalf("version=%d err=%v", version, err)
 	}
 	send, err := s.GetSlackEffect(context.Background(), "abcdefghijklmnopqrstuv")

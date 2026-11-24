@@ -10,12 +10,15 @@ import (
 type State string
 
 const (
+	// Queued is promised work the agent will pick up later. It does not
+	// wake a task watcher until it moves to open.
+	Queued  State = "queued"
 	Open    State = "open"
 	Working State = "working"
 	Done    State = "done"
 )
 
-func (s State) Valid() bool { return s == Open || s == Working || s == Done }
+func (s State) Valid() bool { return s == Queued || s == Open || s == Working || s == Done }
 
 func CanTransition(from, to State) bool {
 	return from.Valid() && to.Valid() && from != to

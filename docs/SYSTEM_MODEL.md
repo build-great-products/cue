@@ -49,7 +49,7 @@ Cue serves one workspace and every channel its bot is a member of; channel membe
 
 Slack reads and writes are explicit. Each write records a durable intent before network submission. Posts carry no link or media previews unless the caller asks for them with `--unfurl`; the choice is part of the recorded intent. Slack content and task state are independent, except for the explicit `task reply --done` composition, which marks done only after a confirmed reply.
 
-Lifecycle reactions are the one automatic Slack write. They project task state onto the source message: `hourglass_flowing_sand` while `open`, `eyes` while `working`, nothing once `done`. Each transition adds the new marker before removing the old one, through the same durable effect path as any other write.
+Lifecycle reactions are the one automatic Slack write. They project task state onto the source message: `hourglass_flowing_sand` while `open`, `eyes` while `working`, nothing while `queued` or once `done`. Each transition adds the new marker before removing the old one, through the same durable effect path as any other write.
 
 ### Local protocol
 
@@ -57,13 +57,15 @@ A private, versioned Unix-socket protocol connects the gateway and CLI. Request 
 
 ## Task and request flow
 
-A task has one current text value, a monotonic content version, and one of three states:
+A task has one current text value, a monotonic content version, and one of four states:
 
 ```text
 open → working → done
   ▲       │        │
   └───────┴────────┘
 ```
+
+Any state can also move to and from `queued`: promised work that the agent will pick up later. A queued task is live work, but `task watch` never shows it; moving it to `open` is what hands it to the agent.
 
 State transitions do not post Slack content; they only move the lifecycle reaction. A meaningful edit to an admitted Slack source replaces current task text and increments its version; old text is not retained. Source deletion preserves the task text and state.
 

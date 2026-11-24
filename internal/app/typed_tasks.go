@@ -12,8 +12,43 @@ import (
 )
 
 // taskOrigin carries task create's optional named source flags. ReplySlack
-// is the raw CHANNEL:THREAD_TS value of --reply-slack.
-type taskOrigin struct{ Source, Key, URL, ReplySlack, ReplyVia string }
+// is the raw CHANNEL:THREAD_TS value of --reply-slack. State, Title, and
+// Notes are task create's --state, --title, and --notes; TitleSet and
+// NotesSet record that the flag was given.
+type taskOrigin struct {
+	Source, Key, URL, ReplySlack, ReplyVia string
+	State, Title, Notes                    string
+	TitleSet, NotesSet                     bool
+}
+
+// createBody reads task create's text: --title (with optional --notes) or
+// exactly one of --text, --text-file, and --stdin. The stored text is the
+// title, then a blank line and the notes when given.
+func (a App) createBody(origin taskOrigin, text, textFile string, textSet, textFileSet, stdin bool) (string, error) {
+	if origin.NotesSet && !origin.TitleSet {
+		return "", usage("--notes requires --title")
+	}
+	if !origin.TitleSet {
+		return a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
+	}
+	if textSet || textFileSet || stdin {
+		return "", usage("--title cannot be combined with --text, --text-file, or --stdin")
+	}
+	if strings.TrimSpace(origin.Title) == "" {
+		return "", usage("--title must not be empty")
+	}
+	if strings.ContainsAny(origin.Title, "\r\n") {
+		return "", usage("--title must be one line; put details in --notes")
+	}
+	body := origin.Title
+	if origin.NotesSet {
+		if strings.TrimSpace(origin.Notes) == "" {
+			return "", usage("--notes must not be empty")
+		}
+		body += "\n\n" + origin.Notes
+	}
+	return validateCommandText(body)
+}
 
 // parseReplySlack splits and validates a --reply-slack CHANNEL:THREAD_TS value.
 func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
@@ -28,14 +63,17 @@ func parseReplySlack(value string) (*protocol.SlackThreadDTO, error) {
 // It retains the established task request IDs, text-file safety, and
 // mutation JSON envelope.
 func (a App) taskTyped(command, selector, text, textFile string, textSet, textFileSet, stdin bool, state string, all bool, limit int, note string, done, unfurl bool, requestID, cursor string, jsonOut bool, origin taskOrigin, send outgoing) error {
-	mutation := command == "create" || command == "update" || command == "open" || command == "working" || command == "done" || command == "reply"
+	mutation := command == "create" || command == "update" || command == "open" || command == "working" || command == "done" || command == "queue" || command == "reply"
 	var params any
 
 	switch command {
 	case "create":
-		body, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
+		body, err := a.createBody(origin, text, textFile, textSet, textFileSet, stdin)
 		if err != nil {
 			return err
+		}
+		if origin.State != "" && origin.State != "open" && origin.State != "queued" {
+			return usage("--state must be open or queued")
 		}
 		if origin.Source == "" && (origin.Key != "" || origin.URL != "" || origin.ReplySlack != "" || origin.ReplyVia != "") {
 			return usage("--key, --url, --reply-slack, and --reply-via require --source")
@@ -56,6 +94,11 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 			return usage("--url must be an http or https URL of at most 2048 printable ASCII characters without spaces")
 		}
 		create := protocol.TaskCreateParams{Text: body, Source: origin.Source, Key: origin.Key, URL: origin.URL, ReplyVia: origin.ReplyVia}
+		if origin.State == "queued" {
+			// Open is the default and stays off the wire, so an open create
+			// keeps its shape and works against any gateway.
+			create.State = "queued"
+		}
 		if origin.ReplySlack != "" {
 			if create.ReplySlack, err = parseReplySlack(origin.ReplySlack); err != nil {
 				return err
@@ -76,16 +119,20 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 		}
 		var selectedState *string
 		if state != "" {
-			if state != "open" && state != "working" && state != "done" {
+			if !task.State(state).Valid() {
 				return usage("invalid --state")
 			}
 			selectedState = &state
 		}
 		params = protocol.TaskListParams{State: selectedState, IncludeDone: all, Limit: limit, Cursor: cursor}
-	case "open", "working", "done":
+	case "open", "working", "done", "queue":
 		// The legacy flag parser always supplied a note pointer, including for
 		// an omitted --note; retain that precise wire DTO shape.
-		params = protocol.TaskTransitionParams{Task: selector, State: command, Note: &note}
+		target := command
+		if command == "queue" {
+			target = string(task.Queued)
+		}
+		params = protocol.TaskTransitionParams{Task: selector, State: target, Note: &note}
 	case "reply":
 		original, err := a.readCommandTextSource(text, textFile, textSet, textFileSet, stdin)
 		if err != nil {
@@ -143,6 +190,9 @@ func (a App) taskTyped(command, selector, text, textFile string, textSet, textFi
 	if origin.ReplyVia != "" {
 		capabilities = append(capabilities, protocol.CapabilityTaskReplyAdapters)
 	}
+	if command == "queue" || origin.State == "queued" || (command == "list" && state == string(task.Queued)) {
+		capabilities = append(capabilities, protocol.CapabilityTaskQueued)
+	}
 	out, err := a.gatewayCall(c, taskProtocolCommand(command), requestID, params, capabilities...)
 	if err != nil {
 		return mutationJSONError(err, mutation, jsonOut, requestID)
@@ -191,7 +241,7 @@ func taskProtocolCommand(command string) string {
 	switch command {
 	case "show":
 		return "task.get"
-	case "open", "working", "done":
+	case "open", "working", "done", "queue":
 		return "task.transition"
 	default:
 		return "task." + command

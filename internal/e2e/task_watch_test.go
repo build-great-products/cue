@@ -291,6 +291,42 @@ func TestBuiltBinaryTaskWatchResumesEscapesAndReconnects(t *testing.T) {
 		t.Fatalf("task show = %q", shown)
 	}
 
+	// Queued tasks never reach a watcher, even with --state-changes; one that
+	// moves to open appears then as a state change.
+	queuedWatch := startWatch("--since", "10", "--state-changes")
+	var queued struct {
+		Result protocol.TaskMutationDTO `json:"result"`
+	}
+	output := run("task", "add", "--title", "Promised work", "--notes", "pick up later", "--state", "queued", "--json")
+	if err := json.Unmarshal(output, &queued); err != nil || queued.Result.State != "queued" {
+		t.Fatalf("task add --state queued: %v %s", err, output)
+	}
+	openNow := createTask("open now")
+	if got := queuedWatch.next(t); !strings.HasPrefix(got, "cursor=12 change=created task="+openNow+" ") {
+		t.Fatalf("open after queued line=%q", got)
+	}
+	run("task", "queue", openNow, "--json")
+	queuedWatch.quiet(t, 500*time.Millisecond)
+	if listed := string(run("task", "list", "--state", "queued")); !strings.Contains(listed, queued.Result.TaskID+"  queued") || !strings.Contains(listed, openNow+"  queued") || !strings.Contains(listed, "│ Promised work\n│ \n│ pick up later") {
+		t.Fatalf("queued list=%q", listed)
+	}
+	if listed := string(run("task", "list")); strings.Contains(listed, "queued") {
+		t.Fatalf("default list shows queued tasks: %q", listed)
+	}
+	var status struct {
+		TaskCounts struct {
+			Queued int64 `json:"queued"`
+		} `json:"task_counts"`
+	}
+	if output := run("gateway", "status", "--json"); json.Unmarshal(output, &status) != nil || status.TaskCounts.Queued != 2 {
+		t.Fatalf("status=%s", output)
+	}
+	run("task", "open", queued.Result.TaskID, "--json")
+	if got, want := queuedWatch.next(t), "cursor=14 change=state task="+queued.Result.TaskID+" version=1 state=open source=local channel= thread= parent= key= url= reply= via= text=Promised work\\n\\npick up later"; got != want {
+		t.Fatalf("unqueued line=%q want %q", got, want)
+	}
+	queuedWatch.stop(t)
+
 	// --no-backlog starts at the current head; a cursor from another ledger is refused.
 	fresh := startWatch("--no-backlog")
 	fresh.quiet(t, 500*time.Millisecond)

@@ -17,8 +17,9 @@ const (
 )
 
 // lifecycleReaction is the Slack marker that projects one task state onto the
-// source message: queued while open, eyes while working, none once done. It is
-// a projection only; SQLite task state stays authoritative.
+// source message: hourglass while open, eyes while working, and none once
+// done or queued (a queued task is parked, so it drops its marker like done).
+// It is a projection only; SQLite task state stays authoritative.
 func lifecycleReaction(state task.State) string {
 	switch state {
 	case task.Open:
@@ -162,7 +163,8 @@ func (s *Server) currentTransition(ctx context.Context, taskID string) (store.Sl
 // transition and preparation of its Slack projection. It only prepares effects;
 // the normal startup effect recovery performs their single submissions. Done
 // tasks are skipped: their only projection is a removal, and replaying it for
-// every historical task on upgrade would be noise rather than repair.
+// every historical task on upgrade would be noise rather than repair. Queued
+// tasks are skipped for the same reason: entering queued only removes.
 func (s *Server) reconcileTaskReactions(ctx context.Context) error {
 	for cursor := ""; ; {
 		tasks, next, err := s.store.List(ctx, nil, false, 100, cursor)

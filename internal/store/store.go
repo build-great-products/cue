@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"database/sql"
+	"database/sql/driver"
 	_ "embed"
 	"encoding/hex"
 	"encoding/json"
@@ -26,7 +27,7 @@ import (
 )
 
 const (
-	SchemaVersion      = 14
+	SchemaVersion      = 15
 	ApplicationID      = 0x4d435030 // "MCP0"
 	RequestRetention   = 30 * 24 * time.Hour
 	defaultBusyTimeout = 5 * time.Second
@@ -73,6 +74,9 @@ var migration0013 []byte
 
 //go:embed migrations/0014_send_unfurl.sql
 var migration0014 []byte
+
+//go:embed migrations/0015_queued_state.sql
+var migration0015 []byte
 
 var (
 	ErrIncompatibleSchema = errors.New("incompatible SQLite schema")
@@ -179,6 +183,8 @@ func migrationChecksum(version int) string {
 		migration = migration0013
 	case 14:
 		migration = migration0014
+	case 15:
+		migration = migration0015
 	default:
 		return ""
 	}
@@ -276,7 +282,7 @@ func (s *Store) DB() *sql.DB  { return s.db } // for diagnostics and store tests
 // Counts returns current inventory without task contents.
 func (s *Store) Counts(ctx context.Context) (status.Counts, error) {
 	var c status.Counts
-	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FILTER (WHERE state='open'), count(*) FILTER (WHERE state='working'), count(*) FILTER (WHERE state='done') FROM tasks").Scan(&c.Open, &c.Working, &c.Done); err != nil {
+	if err := s.db.QueryRowContext(ctx, "SELECT count(*) FILTER (WHERE state='queued'), count(*) FILTER (WHERE state='open'), count(*) FILTER (WHERE state='working'), count(*) FILTER (WHERE state='done') FROM tasks").Scan(&c.Queued, &c.Open, &c.Working, &c.Done); err != nil {
 		return c, err
 	}
 	err := s.db.QueryRowContext(ctx, "SELECT count(*) FROM mutation_requests").Scan(&c.RequestRecords)
@@ -353,29 +359,28 @@ func (s *Store) initialize(ctx context.Context, created bool) error {
 	if !created && count != 0 {
 		return fmt.Errorf("%w: setup only migrates an empty database", ErrIncompatibleSchema)
 	}
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
+	return s.migrationTx(ctx, func(tx *sql.Tx) error {
+		return initializeTx(ctx, tx, s.now())
+	})
+}
+
+func initializeTx(ctx context.Context, tx *sql.Tx, now int64) (err error) {
 	for _, migration := range []struct {
 		version int
 		sql     []byte
-	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}, {12, migration0012}, {13, migration0013}, {14, migration0014}} {
+	}{{1, migration0001}, {2, migration0002}, {3, migration0003}, {4, migration0004}, {5, migration0005}, {6, migration0006}, {7, migration0007}, {8, migration0008}, {9, migration0009}, {10, migration0010}, {11, migration0011}, {12, migration0012}, {13, migration0013}, {14, migration0014}, {15, migration0015}} {
 		if _, err = tx.ExecContext(ctx, string(migration.sql)); err != nil {
 			return err
 		}
-		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?, ?, ?)", migration.version, migrationChecksum(migration.version), s.now()); err != nil {
+		if _, err = tx.ExecContext(ctx, "INSERT INTO schema_migrations(version, checksum, applied_at) VALUES(?, ?, ?)", migration.version, migrationChecksum(migration.version), now); err != nil {
 			return err
 		}
 	}
 	if _, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA application_id=%d", ApplicationID)); err != nil {
 		return err
 	}
-	if _, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion)); err != nil {
-		return err
-	}
-	return tx.Commit()
+	_, err = tx.ExecContext(ctx, fmt.Sprintf("PRAGMA user_version=%d", SchemaVersion))
+	return err
 }
 
 func (s *Store) openOrUpgrade(ctx context.Context) error {
@@ -391,15 +396,17 @@ func (s *Store) openOrUpgrade(ctx context.Context) error {
 }
 
 func (s *Store) upgrade(ctx context.Context, fromVersion int) error {
-	tx, err := s.db.BeginTx(ctx, nil)
-	if err != nil {
+	if err := s.migrationTx(ctx, func(tx *sql.Tx) error { return s.upgradeTx(ctx, tx, fromVersion) }); err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	return s.compatible(ctx)
+}
+
+func (s *Store) upgradeTx(ctx context.Context, tx *sql.Tx, fromVersion int) error {
 	if err := compatibleVersion(ctx, tx, fromVersion); err != nil {
 		return err
 	}
-	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011, 12: migration0012, 13: migration0013, 14: migration0014}
+	migrations := map[int][]byte{2: migration0002, 3: migration0003, 4: migration0004, 5: migration0005, 6: migration0006, 7: migration0007, 8: migration0008, 9: migration0009, 10: migration0010, 11: migration0011, 12: migration0012, 13: migration0013, 14: migration0014, 15: migration0015}
 	for version := fromVersion + 1; version <= SchemaVersion; version++ {
 		migration, ok := migrations[version]
 		if !ok {
@@ -415,10 +422,78 @@ func (s *Store) upgrade(ctx context.Context, fromVersion int) error {
 			return err
 		}
 	}
-	if err := tx.Commit(); err != nil {
+	return nil
+}
+
+// migrationTx runs fn in one transaction on a dedicated connection with
+// foreign key enforcement off. SQLite's documented table rebuild (migration
+// 15) needs that, and SQLite ignores PRAGMA foreign_keys inside a
+// transaction, so it is switched before BEGIN. Every foreign key is checked
+// before commit instead. Enforcement is restored, and legacy_alter_table
+// reset, before the connection returns to the pool; a connection that cannot
+// be restored is discarded rather than reused.
+func (s *Store) migrationTx(ctx context.Context, fn func(*sql.Tx) error) (err error) {
+	conn, err := s.db.Conn(ctx)
+	if err != nil {
 		return err
 	}
-	return s.compatible(ctx)
+	defer func() {
+		if restoreErr := restoreConnectionPragmas(context.WithoutCancel(ctx), conn); restoreErr != nil {
+			_ = conn.Raw(func(any) error { return driver.ErrBadConn })
+			if err == nil {
+				err = restoreErr
+			}
+		}
+		_ = conn.Close()
+	}()
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=OFF"); err != nil {
+		return err
+	}
+	tx, err := conn.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if err := fn(tx); err != nil {
+		return err
+	}
+	if err := foreignKeyCheck(ctx, tx); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func restoreConnectionPragmas(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, "PRAGMA foreign_keys=ON"); err != nil {
+		return err
+	}
+	if _, err := conn.ExecContext(ctx, "PRAGMA legacy_alter_table=OFF"); err != nil {
+		return err
+	}
+	var foreign, legacy int
+	if err := conn.QueryRowContext(ctx, "PRAGMA foreign_keys").Scan(&foreign); err != nil {
+		return err
+	}
+	if err := conn.QueryRowContext(ctx, "PRAGMA legacy_alter_table").Scan(&legacy); err != nil {
+		return err
+	}
+	if foreign != 1 || legacy != 0 {
+		return errors.New("SQLite pragmas were not restored after migration")
+	}
+	return nil
+}
+
+// foreignKeyCheck fails when any row references a missing parent.
+func foreignKeyCheck(ctx context.Context, tx *sql.Tx) error {
+	rows, err := tx.QueryContext(ctx, "PRAGMA foreign_key_check")
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+	if rows.Next() {
+		return fmt.Errorf("%w: foreign key check failed during migration", ErrIncompatibleSchema)
+	}
+	return rows.Err()
 }
 
 func (s *Store) compatible(ctx context.Context) error {
@@ -520,7 +595,7 @@ func expectedSchemaFingerprints(ctx context.Context, version int) (map[string]st
 	}
 	db.SetMaxOpenConns(1)
 	defer db.Close()
-	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014}
+	migrations := [][]byte{migration0001, migration0002, migration0003, migration0004, migration0005, migration0006, migration0007, migration0008, migration0009, migration0010, migration0011, migration0012, migration0013, migration0014, migration0015}
 	if version < 1 || version > len(migrations) {
 		return nil, errors.New("unknown schema version")
 	}

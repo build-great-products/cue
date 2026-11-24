@@ -78,6 +78,8 @@ func TestTaskWatchDefaultFilter(t *testing.T) {
 		{change(5, "state", "open"), true},     // reopened
 		{change(6, "state", "working"), false}, // claimed elsewhere
 		{change(7, "state", "done"), false},
+		{change(8, "created", "queued"), false}, // queued work never wakes a watcher
+		{change(9, "edited", "queued"), false},
 	} {
 		if got := w.emits(c.change); got != c.want {
 			t.Errorf("emits(%+v)=%v want %v", c.change, got, c.want)
@@ -86,6 +88,9 @@ func TestTaskWatchDefaultFilter(t *testing.T) {
 	w.opts.stateChanges = true
 	if !w.emits(change(8, "state", "done")) {
 		t.Fatal("--state-changes did not include done")
+	}
+	if w.emits(change(9, "state", "queued")) {
+		t.Fatal("--state-changes included a queued task")
 	}
 }
 

@@ -23,7 +23,7 @@ Go CLI ──────┘              │
 The current v1 workflow includes:
 
 - single-workspace Slack Socket Mode admission from every channel the bot is a member of, for every member of that workspace;
-- local and Slack-origin tasks with `open`, `working`, and `done` states;
+- local and Slack-origin tasks with `queued`, `open`, `working`, and `done` states;
 - tasks from other systems, labelled with a source name, deduplicated by an external key, and optionally answered in a Slack thread (see [Feeding tasks from other systems](#feeding-tasks-from-other-systems));
 - `task watch`, a one-line-per-event task stream with a durable resume cursor;
 - explicit Slack reads, replies, edits, deletes, reactions, and file uploads;
@@ -56,7 +56,7 @@ Start the gateway in the foreground:
 
 Upgrading from Mosscap (the project's previous name): stop the gateway, move `~/.config/mosscap` to `~/.config/cue` and `~/.local/state/mosscap` to `~/.local/state/cue` (or the same names under your `XDG_CONFIG_HOME` and `XDG_STATE_HOME`), rename `mosscap.sqlite3` in the state directory to `cue.sqlite3`, rename `MOSSCAP_SLACK_*_TOKEN` environment variables to `CUE_SLACK_*_TOKEN`, then start `cue gateway run`. The ledger needs no migration. Temporary download files keep the `mosscap-xfr-` prefix because the ledger schema checks it.
 
-Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled. Schema migration 11 adds the `task_sources` table for [named task sources](#feeding-tasks-from-other-systems), and migration 12 adds their optional Slack reply target; both are additive and also one-way, so an older binary refuses the upgraded ledger. Migration 13 adds reply adapters, and migration 14 records on each Slack send whether link previews were allowed (existing sends are recorded as allowed, which is how they were posted); both are additive and one-way too.
+Upgrading from an earlier release (schema migrations 8 to 10 run automatically; they are one-way): remove `delivery_lease`, `leader_heartbeat`, `leader_expiry`, `slack_channel_id`, `slack_channel_allowlist`, and `trusted_user_ids` from `config.toml`. The gateway refuses to start while any of them is present and names every one it finds. The ledger migrates on first start: it drops its Pi delivery records and its trusted-user set (`cue trust` no longer exists). Existing tasks and effects already record their channel, so nothing is backfilled. Schema migration 11 adds the `task_sources` table for [named task sources](#feeding-tasks-from-other-systems), and migration 12 adds their optional Slack reply target; both are additive and also one-way, so an older binary refuses the upgraded ledger. Migration 13 adds reply adapters, and migration 14 records on each Slack send whether link previews were allowed (existing sends are recorded as allowed, which is how they were posted); both are additive and one-way too. Migration 15 adds the [`queued` state](#queued-tasks): it rebuilds the `tasks` and `task_state_events` tables so their state checks admit it, keeping every row and watch cursor, and is one-way.
 
 ## Admission and tasks
 
@@ -85,8 +85,9 @@ Task state remains locally authoritative. Slack-origin tasks also show a lifecyc
 
 | Task state | Reaction |
 | --- | --- |
-| `open` (queued) | `:hourglass_flowing_sand:` |
+| `open` (waiting) | `:hourglass_flowing_sand:` |
 | `working` (claimed with `task working`) | `:eyes:` |
+| `queued` (parked with `task queue`) | none |
 | `done` | none |
 
 Each transition adds the new marker before removing the old one. These are separately recorded Slack effects, so an interrupted or ambiguous Slack call remains inspectable rather than being silently retried or atomically replaced. Edits to the source message change the task text, not the reaction.
@@ -105,7 +106,26 @@ REPLY
 
 `task reply --done` is a resumable composition: it completes the task only after Slack confirms the reply. A plain Slack send never changes task state, and marking a task done never posts to Slack.
 
-For exact multiline or piped bodies, `task create`, `task update`, `task reply`, `slack send`, and `slack edit` accept `--stdin` or `--text-file`; prefer those sources over shell-quoted `--text`. Provide exactly one of `--text`, `--text-file`, or `--stdin`; stdin is read completely (including trailing newlines) before contacting the gateway. `--text` is literal: a typed `\\n` remains a backslash followed by `n`, not a newline.
+For exact multiline or piped bodies, `task create`, `task update`, `task reply`, `slack send`, and `slack edit` accept `--stdin` or `--text-file`; prefer those sources over shell-quoted `--text`. Provide exactly one of `--text`, `--text-file`, or `--stdin`; stdin is read completely (including trailing newlines) before contacting the gateway. `--text` is literal: a typed `\\n` remains a backslash followed by `n`, not a newline. `task create` may take `--title` instead (see below).
+
+### Queued tasks
+
+A `queued` task is work that has been promised but not started: the agent will pick it up later, and nothing should wake it in the meantime. Queued tasks never appear on `task watch`, and a Slack-origin task that is queued drops its lifecycle reaction, as a done one does. Moving a queued task to `open` (with `task open`) is what hands it to the agent: it then appears on the watch stream as `change=state state=open`.
+
+```sh
+cue task add --title "Upgrade the release checklist" --notes "After the 1.4 release ships." --state queued
+cue task queue AbCdEfGh --note "after the release"
+cue task list --state queued
+cue task open AbCdEfGh
+```
+
+- `task create --state queued` creates a task queued; `--state open` is the default, and no other state is accepted. With `--source` and `--key`, an existing task still comes back unchanged, whatever its state.
+- `--title TEXT` with optional `--notes TEXT` is an alternative to `--text`, `--text-file`, and `--stdin`: the task text is the title, then a blank line and the notes. The title is one line; the notes may span several.
+- `task add` is another name for `task create`.
+- `task queue TASK` moves any task to `queued`, like `task open`, `task working`, and `task done`. Any state can move to any other.
+- `task list` shows `open` and `working` tasks by default; use `--state queued` for queued ones, or `--all` for every task. `gateway status` counts them under `task_counts.queued`.
+
+Queueing needs a gateway that advertises `task_queued_v1`; against an older one these commands fail with exit 9.
 
 Every command that contacts the gateway accepts `--timeout DURATION` (default `10s`). The budget starts only immediately before dialing the gateway, covers dial, handshake, request, and frame I/O, and never extends an earlier caller deadline. Stdin and local input validation happen before that budget begins.
 
@@ -121,7 +141,8 @@ cursor=9 change=created task=ZyXwVuTsRqPoNmLkJiHgFe version=1 state=open source=
 cursor=12 change=created task=QwErTyUiOpAsDfGhJkLzXc version=1 state=open source=tracker channel= thread= parent= key=tracker:item-12:comment-34 url=https://tracker.example.com/items/12 reply=C0TRACKER:1700000500.000100 via= text=New comment on item 12
 ```
 
-- `change` is `created`, `edited` (content version changed, for example a Slack edit), or `state` (the task re-entered `open`).
+- `change` is `created`, `edited` (content version changed, for example a Slack edit), or `state` (the task re-entered `open`, for example from `queued`).
+- Queued tasks are never printed, with or without `--state-changes`: the gateway leaves them out of the stream until they move on.
 - `source` is `slack`, `local`, or the name a feeder gave with `--source`.
 - `channel` is the task's Slack channel ID and `thread` its reply thread (the root message timestamp); both are empty for other tasks.
 - `parent` is set on a thread follow-up and names the thread's original task; it is empty otherwise.

@@ -60,9 +60,13 @@ const (
 	// choice. A client needs it before any post, so a new CLI never silently
 	// unfurls through an older gateway.
 	CapabilitySlackUnfurl = "slack_unfurl_v1"
+	// CapabilityTaskQueued means tasks may be queued: task.create accepts
+	// state "queued", task.transition and task.list accept it, and
+	// task.changes leaves queued tasks out until they move on.
+	CapabilityTaskQueued = "task_queued_v1"
 )
 
-var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskReplyAdapters, CapabilitySlackUnfurl}
+var ServerCapabilities = []string{CapabilityStatus, CapabilityDoctor, CapabilityLocalTasks, CapabilityRequestDedup, CapabilityConfigReload, CapabilitySlackRuntime, CapabilitySlackReads, CapabilitySlackPagination, CapabilitySlackEffects, CapabilitySlackSourceMetadata, CapabilityFileTransfer, CapabilityMetadataPurge, CapabilityTaskReply, CapabilitySQLitePagination, CapabilityTaskContext, CapabilityTaskChanges, CapabilitySlackChannels, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskReplyAdapters, CapabilitySlackUnfurl, CapabilityTaskQueued}
 
 var (
 	ErrEmptyFrame    = errors.New("protocol: empty frame")
@@ -168,6 +172,9 @@ type TaskCreateParams struct {
 	// ReplyVia names a configured reply adapter for task.reply (requires
 	// task_reply_adapters_v1 and Source; not with ReplySlack).
 	ReplyVia string `json:"reply_via,omitempty"`
+	// State is the new task's state: empty (open) or "queued" (requires
+	// task_queued_v1).
+	State string `json:"state,omitempty"`
 }
 
 // SlackThreadDTO is a Slack channel and thread root timestamp in the active
@@ -717,6 +724,9 @@ func ValidateParams(command string, raw json.RawMessage) error {
 		if p.Text == "" {
 			return errors.New("missing task text")
 		}
+		if p.State != "" && p.State != "open" && p.State != "queued" {
+			return errors.New("invalid task create state")
+		}
 		if (p.Source != "" && !task.ValidSourceName(p.Source)) || (p.Source == "" && (p.Key != "" || p.URL != "")) || (p.Key != "" && !task.ValidExternalKey(p.Key)) || (p.URL != "" && !task.ValidSourceURL(p.URL)) {
 			return errors.New("invalid task source")
 		}
@@ -743,7 +753,7 @@ func ValidateParams(command string, raw json.RawMessage) error {
 			return errors.New("invalid task update")
 		}
 	case *TaskTransitionParams:
-		if !validTaskSelector(p.Task) || (p.State != "open" && p.State != "working" && p.State != "done") || (p.Note != nil && len(*p.Note) > 4096) {
+		if !validTaskSelector(p.Task) || !task.State(p.State).Valid() || (p.Note != nil && len(*p.Note) > 4096) {
 			return errors.New("invalid task transition")
 		}
 	case *TaskReplyParams:
@@ -751,7 +761,7 @@ func ValidateParams(command string, raw json.RawMessage) error {
 			return errors.New("invalid task reply")
 		}
 	case *TaskListParams:
-		if p.State != nil && *p.State != "open" && *p.State != "working" && *p.State != "done" {
+		if p.State != nil && !task.State(*p.State).Valid() {
 			return errors.New("invalid list state")
 		}
 		if p.Limit < 0 || p.Limit > 100 || (p.Cursor != "" && !validFullTaskID(p.Cursor)) || (p.State != nil && p.IncludeDone) {

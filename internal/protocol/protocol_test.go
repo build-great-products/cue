@@ -38,7 +38,7 @@ func TestAdditiveCapabilitiesAreAdvertisedWithoutProtocolBump(t *testing.T) {
 	if Version != 1 {
 		t.Fatalf("additive commands unexpectedly changed protocol version to %d", Version)
 	}
-	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges, CapabilityTaskSources, CapabilityTaskReplyTargets} {
+	for _, capability := range []string{CapabilityConfigReload, CapabilityTaskChanges, CapabilityTaskSources, CapabilityTaskReplyTargets, CapabilityTaskQueued} {
 		found := false
 		for _, advertised := range ServerCapabilities {
 			found = found || advertised == capability
@@ -323,6 +323,32 @@ func TestTaskCreateSourceParamsAreStrict(t *testing.T) {
 		if err := ValidateParams("task.create", json.RawMessage(raw)); (err == nil) != valid {
 			t.Errorf("%s valid=%v err=%v", raw, valid, err)
 		}
+	}
+}
+
+func TestQueuedStateParams(t *testing.T) {
+	for _, tc := range []struct {
+		command, raw string
+		valid        bool
+	}{
+		{"task.create", `{"text":"x","state":"queued"}`, true},
+		{"task.create", `{"text":"x","state":"open"}`, true},
+		{"task.create", `{"text":"x","state":"working"}`, false},
+		{"task.create", `{"text":"x","state":"done"}`, false},
+		{"task.create", `{"text":"x","state":"later"}`, false},
+		{"task.transition", `{"task":"abcdefghijklmnopqrstuv","state":"queued"}`, true},
+		{"task.transition", `{"task":"abcdefghijklmnopqrstuv","state":"later"}`, false},
+		{"task.list", `{"state":"queued"}`, true},
+		{"task.list", `{"state":"later"}`, false},
+	} {
+		if err := ValidateParams(tc.command, json.RawMessage(tc.raw)); (err == nil) != tc.valid {
+			t.Errorf("%s %s valid=%v err=%v", tc.command, tc.raw, tc.valid, err)
+		}
+	}
+	// An open create keeps the wire shape older gateways accept.
+	b, err := json.Marshal(TaskCreateParams{Text: "x"})
+	if err != nil || string(b) != `{"text":"x"}` {
+		t.Fatalf("open create=%s err=%v", b, err)
 	}
 }
 
